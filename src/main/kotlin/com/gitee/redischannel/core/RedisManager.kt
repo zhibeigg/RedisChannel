@@ -2,7 +2,6 @@ package com.gitee.redischannel.core
 
 import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
-import com.gitee.redischannel.api.RedisFuture
 import com.gitee.redischannel.util.files
 import io.lettuce.core.ReadFrom
 import io.lettuce.core.RedisClient
@@ -26,6 +25,7 @@ import taboolib.library.configuration.ConfigurationSection
 import taboolib.module.configuration.Config
 import taboolib.module.configuration.Configuration
 import taboolib.platform.bukkit.Parallel
+import java.util.concurrent.CompletableFuture
 import java.util.function.Function
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
@@ -396,10 +396,18 @@ object RedisManager: RedisChannelAPI {
     }
 
 
-    override fun asyncGet(key: String): RedisFuture<String?>? {
-        return RedisFuture(useAsyncCommands { commands ->
-            commands.get(key)
-        } ?: return null)
+    override fun asyncGet(key: String): CompletableFuture<String?> {
+        val future = CompletableFuture<String?>()
+        useAsyncCommands { commands ->
+            commands.get(key).whenComplete { v, throwable ->
+                if (v != null) {
+                    future.complete(v)
+                } else {
+                    future.completeExceptionally(throwable)
+                }
+            }
+        }
+        return future
     }
 
     override fun remove(key: String, async: Boolean) {

@@ -1,8 +1,6 @@
 package com.gitee.redischannel.api
 
-import io.lettuce.core.api.async.RedisAsyncCommands
-import io.lettuce.core.api.sync.RedisCommands
-import java.util.function.Function
+import java.util.concurrent.CompletableFuture
 
 interface RedisChannelAPI {
 
@@ -16,7 +14,7 @@ interface RedisChannelAPI {
      * 获取缓存数据
      * @param key 缓存数据键
      * */
-    fun asyncGet(key: String): RedisFuture<String?>?
+    fun asyncGet(key: String): CompletableFuture<String?>
 
     /**
      * 设置缓存数据，默认过期时间10秒
