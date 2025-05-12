@@ -56,16 +56,4 @@ interface RedisChannelAPI {
      * @param async 是否异步
      * */
     fun publish(channel: String, message: String, async: Boolean)
-
-    /**
-     * 使用异步命令
-     * @param block 匿名函数
-     * */
-    fun <T> asyncCommands(block: Function<RedisAsyncCommands<String, String>,  T>): T?
-
-    /**
-     * 使用同步命令
-     * @param block 匿名函数
-     * */
-    fun <T> commands(block: Function<RedisCommands<String, String>,  T>): T?
 }

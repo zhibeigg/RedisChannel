@@ -452,16 +452,4 @@ object RedisManager: RedisChannelAPI {
             }
         }
     }
-
-    override fun <T> asyncCommands(block: Function<RedisAsyncCommands<String, String>, T>): T? {
-        return useAsyncCommands {
-            block.apply(it)
-        }
-    }
-
-    override fun <T> commands(block: Function<RedisCommands<String, String>, T>): T? {
-        return useCommands {
-            block.apply(it)
-        }
-    }
 }
