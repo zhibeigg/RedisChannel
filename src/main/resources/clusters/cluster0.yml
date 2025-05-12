@@ -1,0 +1,22 @@
+redis:
+  # 地址
+  host: localhost
+  # 端口
+  port: 6379
+  # 密码
+  password: password
+  # ssl
+  ssl: false
+  # 超时时间
+  timeout: P15S
+  # 数据库 0 - 15
+  database: 0
+  # 哨兵模式配置
+  sentinel:
+    enable: false
+    # 主节点名称
+    masterId: master
+    # 哨兵节点地址列表
+    nodes:
+      - "127.0.0.1:26379"
+      - "127.0.0.2:26379"

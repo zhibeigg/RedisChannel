@@ -1,0 +1,72 @@
+redis:
+  # 地址
+  host: localhost
+  # 端口
+  port: 6379
+  # 密码
+  password: password
+  # ssl
+  ssl: false
+  # 超时时间
+  timeout: P15S
+  # 数据库 0 - 15
+  database: 0
+  # 单机哨兵模式配置
+  sentinel:
+    enable: false
+    # 主节点名称
+    masterId: master
+    # 哨兵节点地址列表
+    nodes:
+      - "127.0.0.1:26379"
+      - "127.0.0.2:26379"
+  # 单机主从模式配置
+  slaves:
+    enable: false
+    # MASTER 只从主服务读取数据
+    # MASTER_PREFERRED 优先从主服务读取数据，主服务不可用时再从从服务读取
+    # UPSTREAM 同MASTER
+    # UPSTREAM_PREFERRED 同MASTER_PREFERRED
+    # REPLICA 只从从服务读取数据
+    # REPLICA_PREFERRED 优先从从服务读取数据，没有可用从服务时再从主服务读取
+    # LOWEST_LATENCY 使用延迟低的读取
+    # ANY 可从任何节点读取
+    # ANY_REPLICA 从任何从服务读取
+    readFrom: REPLICA_PREFERRED
+  # 集群模式配置
+  cluster:
+    # 开启时 config 中只读取 pool 和 slaves 配置
+    # 集群节点将读取 clusters 文件夹
+    enable: false
+  # 连接池设置
+  pool:
+    # 控制对象池的获取顺序：true 表示后进先出（LIFO），即优先获取最近归还的对象；false 表示先进先出（FIFO）
+    lifo: true
+    # 控制并发访问的锁机制：true 启用公平锁，减少线程饥饿；false 使用非公平锁，提高吞吐量
+    fairness: false
+    # 对象池允许的最大对象数量，超出后将阻塞或抛出异常
+    maxTotal: 8
+    # 池中允许的最大空闲对象数。归还对象时，若空闲数已达 maxIdle，多余对象会被销毁
+    maxIdle: 8
+    # 池中保持的最小空闲对象数。当空闲对象被回收时，至少保留 minIdle 个对象
+    minIdle: 0
+    # 创建对象时是否立即检测有效性，无效对象会被移除
+    testOnCreate: false
+    # 借出对象时是否检测有效性，无效对象会被移除并尝试重新获取
+    testOnBorrow: false
+    # 归还对象时是否检测有效性，无效对象会被销毁而非回收
+    testOnReturn: false
+    # 空闲对象是否定期检测有效性。若开启，后台线程会周期性检查并移除无效对象
+    testWhileIdle: false
+    # 获取对象时的最大等待时间 空 表示无限等待
+    maxWaitDuration: P15S
+    # 当资源耗尽时是否阻塞等待 若为 false，直接抛出 NoSuchElementException
+    blockWhenExhausted: true
+    # 后台回收线程的运行间隔 空 表示禁用回收线程
+    timeBetweenEvictionRuns: P30M
+    # 对象空闲时间超过此值时会被强制回收（即使空闲数未达 minIdle）
+    minEvictableIdleDuration: P30M
+    # 对象空闲时间超过此值时会被回收，但保证池中至少保留 minIdle 个空闲对象
+    softMinEvictableIdleDuration: P30M
+    # 每次回收线程运行时检测的对象数量。负值表示按比例检测（如 -2 检测池中一半对象）
+    numTestsPerEvictionRun: 3
