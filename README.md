@@ -17,3 +17,17 @@
 ```
 
 > 参数 -PDeleteCode 表示移除所有逻辑代码以减少体积。
+
+## 使用API
+
+```
+repositories {
+    maven("https://www.mcwar.cn/nexus/repository/maven-public/")
+}
+
+dependencies {
+    compileOnly("com.gitee.redischannel:RedisChannel:{VERSION}:api")
+}
+```
+
+> {VERSION} 处填写版本号 如 1.0.0
