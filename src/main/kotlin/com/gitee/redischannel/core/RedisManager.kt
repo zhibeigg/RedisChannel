@@ -26,6 +26,7 @@ import taboolib.library.configuration.ConfigurationSection
 import taboolib.module.configuration.Config
 import taboolib.module.configuration.Configuration
 import taboolib.platform.bukkit.Parallel
+import java.util.function.Function
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 
@@ -452,11 +453,15 @@ object RedisManager: RedisChannelAPI {
         }
     }
 
-    override fun <T> asyncCommands(block: (RedisAsyncCommands<String, String>) -> T): T? {
-        return useAsyncCommands(block)
+    override fun <T> asyncCommands(block: Function<RedisAsyncCommands<String, String>, T>): T? {
+        return useAsyncCommands {
+            block.apply(it)
+        }
     }
 
-    override fun <T> commands(block: (RedisCommands<String, String>) -> T): T? {
-        return useCommands(block)
+    override fun <T> commands(block: Function<RedisCommands<String, String>, T>): T? {
+        return useCommands {
+            block.apply(it)
+        }
     }
 }

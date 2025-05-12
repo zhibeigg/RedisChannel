@@ -2,6 +2,7 @@ package com.gitee.redischannel.api
 
 import io.lettuce.core.api.async.RedisAsyncCommands
 import io.lettuce.core.api.sync.RedisCommands
+import java.util.function.Function
 
 interface RedisChannelAPI {
 
@@ -60,11 +61,11 @@ interface RedisChannelAPI {
      * 使用异步命令
      * @param block 匿名函数
      * */
-    fun <T> asyncCommands(block: (command: RedisAsyncCommands<String, String>) -> T): T?
+    fun <T> asyncCommands(block: Function<RedisAsyncCommands<String, String>,  T>): T?
 
     /**
      * 使用同步命令
      * @param block 匿名函数
      * */
-    fun <T> commands(block: (command: RedisCommands<String, String>) -> T): T?
+    fun <T> commands(block: Function<RedisCommands<String, String>,  T>): T?
 }
