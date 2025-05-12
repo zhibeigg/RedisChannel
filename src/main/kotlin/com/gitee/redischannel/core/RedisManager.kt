@@ -3,6 +3,7 @@ package com.gitee.redischannel.core
 import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.util.files
+import io.lettuce.core.ExpireArgs
 import io.lettuce.core.ReadFrom
 import io.lettuce.core.RedisClient
 import io.lettuce.core.RedisURI
@@ -387,6 +388,27 @@ object RedisManager: RedisChannelAPI {
     }
 
     /**
+     * 设置哈希缓存数据，默认过期时间10秒
+     * */
+    override fun hSet(key: String, field: String, value: String, timeout: Long, async: Boolean) {
+        if (async) {
+            useAsyncCommands { commands ->
+                commands.hset(key, field, value)
+                commands.hexpire(key, timeout, field)
+                // 返回操作结果
+                true
+            }
+        } else {
+            useCommands { commands ->
+                commands.hset(key, field, value)
+                commands.hexpire(key, timeout, field)
+                // 返回操作结果
+                true
+            }
+        }
+    }
+
+    /**
      * 获取缓存数据
      * */
     override fun get(key: String): String? {
@@ -410,6 +432,30 @@ object RedisManager: RedisChannelAPI {
         return future
     }
 
+    /**
+     * 获取缓存数据
+     * */
+    override fun hGet(key: String, field: String): String? {
+        return useCommands { commands ->
+            commands.hget(key, field)
+        }
+    }
+
+
+    override fun hAsyncGet(key: String, field: String): CompletableFuture<String?> {
+        val future = CompletableFuture<String?>()
+        useAsyncCommands { commands ->
+            commands.hget(key, field).whenComplete { v, throwable ->
+                if (v != null) {
+                    future.complete(v)
+                } else {
+                    future.completeExceptionally(throwable)
+                }
+            }
+        }
+        return future
+    }
+
     override fun remove(key: String, async: Boolean) {
         if (async) {
             useAsyncCommands { commands ->
@@ -420,6 +466,22 @@ object RedisManager: RedisChannelAPI {
         } else {
             useCommands { commands ->
                 commands.del(key)
+                // 返回操作结果
+                true
+            }
+        }
+    }
+
+    override fun hRemove(key: String, field: String, async: Boolean) {
+        if (async) {
+            useAsyncCommands { commands ->
+                commands.hdel(key, field)
+                // 返回操作结果
+                true
+            }
+        } else {
+            useCommands { commands ->
+                commands.hdel(key, field)
                 // 返回操作结果
                 true
             }
