@@ -3,98 +3,32 @@ package com.gitee.redischannel.core
 import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
-import io.lettuce.core.*
-import io.lettuce.core.api.StatefulRedisConnection
-import io.lettuce.core.api.async.RedisAsyncCommands
-import io.lettuce.core.api.sync.RedisCommands
+import io.lettuce.core.SetArgs
 import io.lettuce.core.cluster.ClusterClientOptions
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
 import io.lettuce.core.cluster.RedisClusterClient
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
-import io.lettuce.core.codec.StringCodec
-import io.lettuce.core.masterreplica.MasterReplica
+import io.lettuce.core.cluster.api.async.RedisAdvancedClusterAsyncCommands
+import io.lettuce.core.cluster.api.sync.RedisAdvancedClusterCommands
 import io.lettuce.core.resource.DefaultClientResources
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig
 import taboolib.common.LifeCycle
-import taboolib.common.env.RuntimeDependencies
-import taboolib.common.env.RuntimeDependency
 import taboolib.common.platform.Awake
 import taboolib.common.platform.function.warning
-import taboolib.module.configuration.Config
-import taboolib.module.configuration.Configuration
 import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
-import java.util.function.Supplier
 import kotlin.time.toJavaDuration
 
+internal object ClusterRedisManager: RedisChannelAPI {
 
-@RuntimeDependencies(
-    RuntimeDependency(
-        "!io.lettuce:lettuce-core:6.6.0.RELEASE",
-        test = "!com.gitee.redischannel.lettuce.core.RedisURI",
-        relocate = ["!io.lettuce", "!com.gitee.redischannel.lettuce", "!io.netty", "!com.gitee.redischannel.netty", "!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2"],
-        transitive = false
-    ),
-    RuntimeDependency(
-        "!org.apache.commons:commons-pool2:2.12.1",
-        test = "!com.gitee.redischannel.commons.pool2.BaseObject",
-        relocate = ["!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2"],
-        transitive = false
-    ),
-    RuntimeDependency(
-        value = "!io.netty:netty-common:4.1.118.Final",
-        test = "!com.gitee.redischannel.netty.util.AbstractConstant",
-        relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
-        transitive = false
-    ),
-    RuntimeDependency(
-        value = "!io.netty:netty-buffer:4.1.118.Final",
-        test = "!com.gitee.redischannel.netty.buffer.AbstractByteBuf",
-        relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
-        transitive = false
-    ),
-    RuntimeDependency(
-        value = "!io.netty:netty-codec:4.1.118.Final",
-        test = "!com.gitee.redischannel.netty.handler.codec.AsciiHeadersEncoder",
-        relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
-        transitive = false
-    ),
-    RuntimeDependency(
-        value = "!io.netty:netty-handler:4.1.118.Final",
-        test = "!com.gitee.redischannel.netty.handler.address.ResolveAddressHandler",
-        relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
-        transitive = false
-    ),
-    RuntimeDependency(
-        value = "!io.netty:netty-resolver:4.1.118.Final",
-        test = "!com.gitee.redischannel.netty.resolver.AbstractAddressResolver",
-        relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
-        transitive = false
-    ),
-    RuntimeDependency(
-        value = "!io.netty:netty-transport:4.1.118.Final",
-        test = "!com.gitee.redischannel.netty.bootstrap.Bootstrap",
-        relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
-        transitive = false
-    ),
-    RuntimeDependency(
-        value = "!io.netty:netty-transport-native-unix-common:4.1.118.Final",
-        test = "!com.gitee.redischannel.netty.channel.unix.Buffer",
-        relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
-        transitive = false
-    )
-)
-internal object RedisManager: RedisChannelAPI {
-
-    lateinit var client: RedisClient
-    lateinit var pool: GenericObjectPool<StatefulRedisConnection<String, String>>
+    lateinit var client: RedisClusterClient
+    lateinit var pool: GenericObjectPool<StatefulRedisClusterConnection<String, String>>
 
     @Parallel(runOn = LifeCycle.ENABLE)
-    private fun start() {
+    fun start() {
         val redis = RedisChannelPlugin.redis
-        if (redis.enableCluster) return
+        if (!redis.enableCluster) return
 
         val resource = DefaultClientResources.builder()
 
@@ -105,49 +39,55 @@ internal object RedisManager: RedisChannelAPI {
             resource.computationThreadPoolSize(4)
         }
 
-        val clientOptions = ClientOptions.builder()
-            .autoReconnect(redis.autoReconnect)
-            .pingBeforeActivateConnection(redis.pingBeforeActivateConnection)
+        val cluster = redis.cluster
+
+        val uris = cluster.nodes.map {
+            it.redisURIBuilder().build()
+        }
+        val clientOptions = ClusterClientOptions.builder()
 
         if (redis.ssl) {
             clientOptions.sslOptions(redis.sslOptions)
         }
-        val uri = redis.redisURIBuilder().build()
 
-        if (redis.enableSlaves) {
-            client = RedisClient.create(resource.build()).apply {
-                options = clientOptions.build()
-            }
-            val slaves = redis.slaves
+        val topologyRefreshOptions = ClusterTopologyRefreshOptions.builder()
+            .enablePeriodicRefresh(cluster.enablePeriodicRefresh)
+            .enableAdaptiveRefreshTrigger(*cluster.enableAdaptiveRefreshTrigger.toTypedArray())
+            .refreshTriggersReconnectAttempts(cluster.refreshTriggersReconnectAttempts)
+            .dynamicRefreshSources(cluster.dynamicRefreshSources)
+            .closeStaleConnections(cluster.closeStaleConnections)
 
-            val masterSlaveClient = MasterReplica.connect(client, StringCodec.UTF8, uri)
-            masterSlaveClient.readFrom = slaves.readFrom
+        cluster.adaptiveRefreshTriggersTimeout?.toJavaDuration()?.let { topologyRefreshOptions.adaptiveRefreshTriggersTimeout(it) }
+        cluster.refreshPeriod?.toJavaDuration()?.let { topologyRefreshOptions.refreshPeriod(it) }
+        clientOptions
+            .topologyRefreshOptions(topologyRefreshOptions.build())
+            .autoReconnect(redis.autoReconnect)
+            .maxRedirects(cluster.maxRedirects)
+            .validateClusterNodeMembership(cluster.validateClusterNodeMembership)
+            .pingBeforeActivateConnection(redis.pingBeforeActivateConnection)
 
-            pool = ConnectionPoolSupport.createGenericObjectPool(
-                { client.connect() },
-                redis.pool.poolConfig()
-            )
-        } else {
-            client = RedisClient.create(resource.build(), uri).apply {
-                options = clientOptions.build()
-            }
+        client = RedisClusterClient.create(resource.build(), uris)
 
-            pool = ConnectionPoolSupport.createGenericObjectPool(
-                { client.connect() },
-                redis.pool.poolConfig()
-            )
-        }
+        pool = ConnectionPoolSupport.createGenericObjectPool(
+            { client.connect().apply {
+                if (redis.enableSlaves) {
+                    val slaves = redis.slaves
+                    readFrom = slaves.readFrom
+                }
+            } },
+            redis.pool.clusterPoolConfig()
+        )
     }
 
     @Awake(LifeCycle.DISABLE)
     private fun stop() {
-        if (RedisChannelPlugin.type == RedisChannelPlugin.Type.SINGLE) {
+        if (RedisChannelPlugin.type == RedisChannelPlugin.Type.CLUSTER) {
             pool.close()
             client.shutdown()
         }
     }
 
-    fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
+    fun <T> useCommands(block: (RedisAdvancedClusterCommands<String, String>) -> T): T? {
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {
@@ -165,7 +105,7 @@ internal object RedisManager: RedisChannelAPI {
         }
     }
 
-    fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): T? {
+    fun <T> useAsyncCommands(block: (RedisAdvancedClusterAsyncCommands<String, String>) -> T): T? {
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {

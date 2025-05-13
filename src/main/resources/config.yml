@@ -6,11 +6,23 @@ redis:
   # 密码
   password: password
   # ssl
+  # 开启后将证书复制到插件文件夹下
+  # 命名为 default.jks
   ssl: false
+  # 证书密码 可以为空
+  truststorePassword: password
   # 超时时间
   timeout: P15S
   # 数据库 0 - 15
   database: 0
+  # I/O线程数 0 代表自动识别
+  ioThreadPoolSize: 0
+  # 任务线程数 0 代表自动识别
+  computationThreadPoolSize: 0
+  # 自动重连
+  autoReconnect: false
+  # 连接激活之前是否执行 PING 命令
+  pingBeforeActivateConnection: true
   # 单机哨兵模式配置
   sentinel:
     enable: false
@@ -23,21 +35,38 @@ redis:
   # 单机主从模式配置
   slaves:
     enable: false
-    # MASTER 只从主服务读取数据
-    # MASTER_PREFERRED 优先从主服务读取数据，主服务不可用时再从从服务读取
-    # UPSTREAM 同MASTER
-    # UPSTREAM_PREFERRED 同MASTER_PREFERRED
-    # REPLICA 只从从服务读取数据
-    # REPLICA_PREFERRED 优先从从服务读取数据，没有可用从服务时再从主服务读取
-    # LOWEST_LATENCY 使用延迟低的读取
-    # ANY 可从任何节点读取
-    # ANY_REPLICA 从任何从服务读取
-    readFrom: REPLICA_PREFERRED
+    # master 只从主服务读取数据
+    # masterPreferred 优先从主服务读取数据，主服务不可用时再从从服务读取
+    # upstream 同MASTER
+    # upstreamPreferred 同MASTER_PREFERRED
+    # slave/replica 只从从服务读取数据
+    # slavePreferred/replicaPreferred 优先从从服务读取数据，没有可用从服务时再从主服务读取
+    # nearest/lowestLatency 使用延迟低的读取
+    # any 可从任何节点读取
+    # anyReplica 从任何从服务读取
+    readFrom: nearest
   # 集群模式配置
   cluster:
-    # 开启时 config 中只读取 pool 和 slaves 配置
-    # 集群节点将读取 clusters 文件夹
+    # 开启时集群节点将读取 clusters 文件夹
     enable: false
+    # 定期刷新集群拓扑
+    enablePeriodicRefresh: false
+    # 集群拓扑刷新周期
+    refreshPeriod: P60S
+    # MOVED_REDIRECT, ASK_REDIRECT, PER SISTENT_RECONNECTS, UNKNOWN_NODE (since 5.1), and UNCOVERED_SLOT
+    enableAdaptiveRefreshTrigger: []
+    # 自适应刷新触发超时
+    adaptiveRefreshTriggersTimeout: P30S
+    # 重新连接尝试（自适应拓扑刷新触发器）
+    refreshTriggersReconnectAttempts: 5
+    # 动态拓扑刷新源
+    dynamicRefreshSources: true
+    # 关闭过时的连接
+    closeStaleConnections: true
+    # 集群重定向的限制
+    maxRedirects: 5
+    # 是否校验集群节点的成员关系
+    validateClusterNodeMembership: true
   # 连接池设置
   pool:
     # 控制对象池的获取顺序：true 表示后进先出（LIFO），即优先获取最近归还的对象；false 表示先进先出（FIFO）
