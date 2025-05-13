@@ -7,6 +7,7 @@ import io.lettuce.core.SslOptions
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
+import io.lettuce.core.masterreplica.StatefulRedisMasterReplicaConnection
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig
 import taboolib.common.platform.function.getDataFolder
 import taboolib.common5.cint
@@ -91,6 +92,29 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
 
         fun clusterPoolConfig(): GenericObjectPoolConfig<StatefulRedisClusterConnection<String, String>> {
             return GenericObjectPoolConfig<StatefulRedisClusterConnection<String, String>>().apply {
+                lifo = this@Pool.lifo
+                fairness = this@Pool.fairness
+
+                maxTotal = this@Pool.maxTotal
+                maxIdle = this@Pool.maxIdle
+                minIdle = this@Pool.minIdle
+
+                testOnCreate = this@Pool.testOnCreate
+                testOnBorrow = this@Pool.testOnBorrow
+                testOnReturn = this@Pool.testOnReturn
+                testWhileIdle = this@Pool.testWhileIdle
+
+                this@Pool.maxWaitDuration?.let { setMaxWait(it.toJavaDuration()) }
+                blockWhenExhausted = this@Pool.blockWhenExhausted
+                this@Pool.timeBetweenEvictionRuns?.let { timeBetweenEvictionRuns = it.toJavaDuration() }
+                this@Pool.minEvictableIdleDuration?.let { minEvictableIdleDuration = it.toJavaDuration() }
+                this@Pool.softMinEvictableIdleDuration?.let { softMinEvictableIdleDuration = it.toJavaDuration() }
+                numTestsPerEvictionRun = this@Pool.numTestsPerEvictionRun
+            }
+        }
+
+        fun slavesPoolConfig(): GenericObjectPoolConfig<StatefulRedisMasterReplicaConnection<String, String>> {
+            return GenericObjectPoolConfig<StatefulRedisMasterReplicaConnection<String, String>>().apply {
                 lifo = this@Pool.lifo
                 fairness = this@Pool.fairness
 

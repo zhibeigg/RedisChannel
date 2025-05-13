@@ -13,6 +13,7 @@ import io.lettuce.core.cluster.RedisClusterClient
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
 import io.lettuce.core.codec.StringCodec
 import io.lettuce.core.masterreplica.MasterReplica
+import io.lettuce.core.masterreplica.StatefulRedisMasterReplicaConnection
 import io.lettuce.core.resource.DefaultClientResources
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
@@ -90,11 +91,15 @@ internal object RedisManager: RedisChannelAPI {
 
     lateinit var client: RedisClient
     lateinit var pool: GenericObjectPool<StatefulRedisConnection<String, String>>
+    lateinit var masterReplicaPool: GenericObjectPool<StatefulRedisMasterReplicaConnection<String, String>>
+
+    var enabledSlaves = false
 
     @Parallel(runOn = LifeCycle.ENABLE)
     private fun start() {
         val redis = RedisChannelPlugin.redis
         if (redis.enableCluster) return
+        RedisChannelPlugin.init(RedisChannelPlugin.Type.SINGLE)
 
         val resource = DefaultClientResources.builder()
 
@@ -114,24 +119,21 @@ internal object RedisManager: RedisChannelAPI {
         }
         val uri = redis.redisURIBuilder().build()
 
+        client = RedisClient.create(resource.build(), uri).apply {
+            options = clientOptions.build()
+        }
+
         if (redis.enableSlaves) {
-            client = RedisClient.create(resource.build()).apply {
-                options = clientOptions.build()
-            }
+            enabledSlaves = true
             val slaves = redis.slaves
 
-            val masterSlaveClient = MasterReplica.connect(client, StringCodec.UTF8, uri)
-            masterSlaveClient.readFrom = slaves.readFrom
-
-            pool = ConnectionPoolSupport.createGenericObjectPool(
-                { client.connect() },
-                redis.pool.poolConfig()
+            masterReplicaPool = ConnectionPoolSupport.createGenericObjectPool(
+                { MasterReplica.connect(client, StringCodec.UTF8, uri).apply {
+                    readFrom = slaves.readFrom
+                } },
+                redis.pool.slavesPoolConfig()
             )
         } else {
-            client = RedisClient.create(resource.build(), uri).apply {
-                options = clientOptions.build()
-            }
-
             pool = ConnectionPoolSupport.createGenericObjectPool(
                 { client.connect() },
                 redis.pool.poolConfig()
@@ -148,38 +150,74 @@ internal object RedisManager: RedisChannelAPI {
     }
 
     fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
-        val connection = try {
-            pool.borrowObject()
-        } catch (e: Exception) {
-            warning("Failed to borrow connection: ${e.message}")
-            return null
-        }
+        if (enabledSlaves) {
+            val connection = try {
+                masterReplicaPool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                return null
+            }
 
-        return try {
-            block(connection.sync())
-        } catch (e: Exception) {
-            warning("Redis operation failed: ${e.message}")
-            null
-        } finally {
-            pool.returnObject(connection)
+            return try {
+                block(connection.sync())
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                masterReplicaPool.returnObject(connection)
+            }
+        } else {
+            val connection = try {
+                pool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                return null
+            }
+
+            return try {
+                block(connection.sync())
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                pool.returnObject(connection)
+            }
         }
     }
 
     fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): T? {
-        val connection = try {
-            pool.borrowObject()
-        } catch (e: Exception) {
-            warning("Failed to borrow connection: ${e.message}")
-            return null
-        }
+        if (enabledSlaves) {
+            val connection = try {
+                masterReplicaPool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                return null
+            }
 
-        return try {
-            block(connection.async())
-        } catch (e: Exception) {
-            warning("Redis operation failed: ${e.message}")
-            null
-        } finally {
-            pool.returnObject(connection)
+            return try {
+                block(connection.async())
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                masterReplicaPool.returnObject(connection)
+            }
+        } else {
+            val connection = try {
+                pool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                return null
+            }
+
+            return try {
+                block(connection.async())
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                pool.returnObject(connection)
+            }
         }
     }
 

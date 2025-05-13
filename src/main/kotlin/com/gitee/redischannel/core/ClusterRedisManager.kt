@@ -29,6 +29,7 @@ internal object ClusterRedisManager: RedisChannelAPI {
     fun start() {
         val redis = RedisChannelPlugin.redis
         if (!redis.enableCluster) return
+        RedisChannelPlugin.init(RedisChannelPlugin.Type.CLUSTER)
 
         val resource = DefaultClientResources.builder()
 

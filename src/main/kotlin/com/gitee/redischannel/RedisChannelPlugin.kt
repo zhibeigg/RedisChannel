@@ -25,6 +25,10 @@ object RedisChannelPlugin : Plugin() {
         CLUSTER, SINGLE;
     }
 
+    internal fun init(type: Type) {
+        this.type = type
+    }
+
     val api: RedisChannelAPI
         get() = when (type) {
             CLUSTER -> ClusterRedisManager
