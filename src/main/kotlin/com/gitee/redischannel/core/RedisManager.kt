@@ -144,7 +144,11 @@ internal object RedisManager: RedisChannelAPI {
     @Awake(LifeCycle.DISABLE)
     private fun stop() {
         if (RedisChannelPlugin.type == RedisChannelPlugin.Type.SINGLE) {
-            pool.close()
+            if (enabledSlaves) {
+                masterReplicaPool.close()
+            } else {
+                pool.close()
+            }
             client.shutdown()
         }
     }
