@@ -4,15 +4,21 @@ import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.RedisCommandAPI
+import com.gitee.redischannel.api.RedisPubSubAPI
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
 import io.lettuce.core.SetArgs
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.api.async.RedisAsyncCommands
+import io.lettuce.core.api.reactive.RedisReactiveCommands
 import io.lettuce.core.api.sync.RedisCommands
 import io.lettuce.core.codec.StringCodec
 import io.lettuce.core.masterreplica.MasterReplica
 import io.lettuce.core.masterreplica.StatefulRedisMasterReplicaConnection
+import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
+import io.lettuce.core.pubsub.api.async.RedisPubSubAsyncCommands
+import io.lettuce.core.pubsub.api.reactive.RedisPubSubReactiveCommands
+import io.lettuce.core.pubsub.api.sync.RedisPubSubCommands
 import io.lettuce.core.resource.DefaultClientResources
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
@@ -81,11 +87,12 @@ import java.util.function.Function
         transitive = false
     )
 )
-internal object RedisManager: RedisChannelAPI, RedisCommandAPI {
+internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
 
     lateinit var client: RedisClient
     lateinit var pool: GenericObjectPool<StatefulRedisConnection<String, String>>
     lateinit var masterReplicaPool: GenericObjectPool<StatefulRedisMasterReplicaConnection<String, String>>
+    lateinit var pubSubConnection: StatefulRedisPubSubConnection<String, String>
 
     var enabledSlaves = false
 
@@ -133,6 +140,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI {
                 redis.pool.poolConfig()
             )
         }
+        pubSubConnection = client.connectPubSub()
     }
 
     @Awake(LifeCycle.DISABLE)
@@ -153,6 +161,10 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI {
 
     override fun <T> useAsyncCommands(block: Function<RedisAsyncCommands<String, String>, T>): T? {
         return useAsyncCommands { block.apply(it) }
+    }
+
+    override fun <T> useReactiveCommands(block: Function<RedisReactiveCommands<String, String>, T>): T? {
+        return useReactiveCommands { block.apply(it) }
     }
 
     fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
@@ -218,6 +230,42 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI {
 
             return try {
                 block(connection.async())
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                pool.returnObject(connection)
+            }
+        }
+    }
+
+    fun <T> useReactiveCommands(block: (RedisReactiveCommands<String, String>) -> T): T? {
+        if (enabledSlaves) {
+            val connection = try {
+                masterReplicaPool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                return null
+            }
+
+            return try {
+                block(connection.reactive())
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                masterReplicaPool.returnObject(connection)
+            }
+        } else {
+            val connection = try {
+                pool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                return null
+            }
+
+            return try {
+                block(connection.reactive())
             } catch (e: Exception) {
                 warning("Redis operation failed: ${e.message}")
                 null
@@ -399,5 +447,17 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI {
                 true
             }
         }
+    }
+
+    override fun <T> useCommands(block: Function<RedisPubSubCommands<String, String>, T>): T? {
+        return block.apply(pubSubConnection.sync())
+    }
+
+    override fun <T> useAsyncCommands(block: Function<RedisPubSubAsyncCommands<String, String>, T>): T? {
+        return block.apply(pubSubConnection.async())
+    }
+
+    override fun <T> useReactiveCommands(block: Function<RedisPubSubReactiveCommands<String, String>, T>): T? {
+        return block.apply(pubSubConnection.reactive())
     }
 }

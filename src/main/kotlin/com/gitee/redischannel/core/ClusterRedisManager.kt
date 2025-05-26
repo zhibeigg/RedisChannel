@@ -3,14 +3,23 @@ package com.gitee.redischannel.core
 import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
-import com.gitee.redischannel.api.RedisClusterCommandAPI
+import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
+import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
 import io.lettuce.core.SetArgs
 import io.lettuce.core.cluster.ClusterClientOptions
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
 import io.lettuce.core.cluster.RedisClusterClient
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
 import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands
+import io.lettuce.core.cluster.api.reactive.RedisClusterReactiveCommands
 import io.lettuce.core.cluster.api.sync.RedisClusterCommands
+import io.lettuce.core.cluster.pubsub.StatefulRedisClusterPubSubConnection
+import io.lettuce.core.cluster.pubsub.api.async.RedisClusterPubSubAsyncCommands
+import io.lettuce.core.cluster.pubsub.api.reactive.RedisClusterPubSubReactiveCommands
+import io.lettuce.core.cluster.pubsub.api.sync.RedisClusterPubSubCommands
+import io.lettuce.core.pubsub.api.async.RedisPubSubAsyncCommands
+import io.lettuce.core.pubsub.api.reactive.RedisPubSubReactiveCommands
+import io.lettuce.core.pubsub.api.sync.RedisPubSubCommands
 import io.lettuce.core.resource.DefaultClientResources
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
@@ -22,10 +31,11 @@ import java.util.concurrent.CompletableFuture
 import java.util.function.Function
 import kotlin.time.toJavaDuration
 
-internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
+internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, RedisClusterPubSubAPI {
 
     lateinit var client: RedisClusterClient
     lateinit var pool: GenericObjectPool<StatefulRedisClusterConnection<String, String>>
+    lateinit var pubSubConnection: StatefulRedisClusterPubSubConnection<String, String>
 
     @Parallel(runOn = LifeCycle.ENABLE)
     fun start() {
@@ -80,6 +90,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
             } },
             redis.pool.clusterPoolConfig()
         )
+        pubSubConnection = client.connectPubSub()
     }
 
     @Awake(LifeCycle.DISABLE)
@@ -96,6 +107,10 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
 
     override fun <T> useAsyncCommands(block: Function<RedisClusterAsyncCommands<String, String>, T>): T? {
         return useAsyncCommands { block.apply(it) }
+    }
+
+    override fun <T> useReactiveCommands(block: Function<RedisClusterReactiveCommands<String, String>, T>): T? {
+        return useReactiveCommands { block.apply(it) }
     }
 
     fun <T> useCommands(block: (RedisClusterCommands<String, String>) -> T): T? {
@@ -126,6 +141,24 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
 
         return try {
             block(connection.async())
+        } catch (e: Exception) {
+            warning("Redis operation failed: ${e.message}")
+            null
+        } finally {
+            pool.returnObject(connection)
+        }
+    }
+
+    fun <T> useReactiveCommands(block: (RedisClusterReactiveCommands<String, String>) -> T): T? {
+        val connection = try {
+            pool.borrowObject()
+        } catch (e: Exception) {
+            warning("Failed to borrow connection: ${e.message}")
+            return null
+        }
+
+        return try {
+            block(connection.reactive())
         } catch (e: Exception) {
             warning("Redis operation failed: ${e.message}")
             null
@@ -306,5 +339,17 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
                 true
             }
         }
+    }
+
+    override fun <T> useCommands(block: Function<RedisClusterPubSubCommands<String, String>, T>): T? {
+        return block.apply(pubSubConnection.sync())
+    }
+
+    override fun <T> useAsyncCommands(block: Function<RedisClusterPubSubAsyncCommands<String, String>, T>): T? {
+        return block.apply(pubSubConnection.async())
+    }
+
+    override fun <T> useReactiveCommands(block: Function<RedisClusterPubSubReactiveCommands<String, String>, T>): T? {
+        return block.apply(pubSubConnection.reactive())
     }
 }

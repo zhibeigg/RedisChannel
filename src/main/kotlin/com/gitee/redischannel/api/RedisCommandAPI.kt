@@ -1,6 +1,7 @@
 package com.gitee.redischannel.api
 
 import io.lettuce.core.api.async.RedisAsyncCommands
+import io.lettuce.core.api.reactive.RedisReactiveCommands
 import io.lettuce.core.api.sync.RedisCommands
 import java.util.function.Function
 
@@ -19,4 +20,11 @@ interface RedisCommandAPI {
      * @return [T]
      * */
     fun <T> useAsyncCommands(block: Function<RedisAsyncCommands<String, String>, T>): T?
+
+    /**
+     * 使用反应式命令
+     * @param block 匿名函数
+     * @return [T]
+     * */
+    fun <T> useReactiveCommands(block: Function<RedisReactiveCommands<String, String>, T>): T?
 }
