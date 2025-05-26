@@ -19,6 +19,7 @@ import taboolib.common.platform.Awake
 import taboolib.common.platform.function.warning
 import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
+import java.util.function.Function
 import kotlin.time.toJavaDuration
 
 internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
@@ -89,7 +90,15 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
         }
     }
 
-    override fun <T> useCommands(block: (RedisClusterCommands<String, String>) -> T): T? {
+    override fun <T> useCommands(block: Function<RedisClusterCommands<String, String>, T>): T? {
+        return useCommands { block.apply(it) }
+    }
+
+    override fun <T> useAsyncCommands(block: Function<RedisClusterAsyncCommands<String, String>, T>): T? {
+        return useAsyncCommands { block.apply(it) }
+    }
+
+    fun <T> useCommands(block: (RedisClusterCommands<String, String>) -> T): T? {
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {
@@ -107,7 +116,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
         }
     }
 
-    override fun <T> useAsyncCommands(block: (RedisClusterAsyncCommands<String, String>) -> T): T? {
+    fun <T> useAsyncCommands(block: (RedisClusterAsyncCommands<String, String>) -> T): T? {
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {

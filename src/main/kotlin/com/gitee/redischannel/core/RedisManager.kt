@@ -23,6 +23,7 @@ import taboolib.common.platform.Awake
 import taboolib.common.platform.function.warning
 import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
+import java.util.function.Function
 
 @RuntimeDependencies(
     RuntimeDependency(
@@ -146,7 +147,15 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI {
         }
     }
 
-    override fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
+    override fun <T> useCommands(block: Function<RedisCommands<String, String>, T>): T? {
+        return useCommands { block.apply(it) }
+    }
+
+    override fun <T> useAsyncCommands(block: Function<RedisAsyncCommands<String, String>, T>): T? {
+        return useAsyncCommands { block.apply(it) }
+    }
+
+    fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
         if (enabledSlaves) {
             val connection = try {
                 masterReplicaPool.borrowObject()
@@ -182,7 +191,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI {
         }
     }
 
-    override fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): T? {
+    fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): T? {
         if (enabledSlaves) {
             val connection = try {
                 masterReplicaPool.borrowObject()

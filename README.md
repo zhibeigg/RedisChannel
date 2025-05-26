@@ -26,7 +26,42 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:{VERSION}:api")
+    implementation("com.gitee.redischannel:RedisChannel:{VERSION}:api")
+}
+```
+### 获取数据/存储数据
+
+```kotlin
+val api = RedisChannelPlugin.api
+val id = "player"
+
+val data = api.get(id)
+api.refreshExpire(id, 3600, false)
+
+api.set(id, data, 3600, false)
+```
+
+### 高级用法,直接操作command
+
+```kotlin
+val api = RedisChannelPlugin.api.commandAPI()
+val clusterApi = RedisChannelPlugin.api.clusterCommandAPI()
+val id = "player"
+
+// 普通模式
+val data = api.useCommands { command ->
+    command.get(id)
+}
+val asyncData = api.useAsyncCommands { command ->
+    command.get(id)
+}
+
+// 集群模式
+val clusterData = api.useCommands { command ->
+    command.get(id)
+}
+val clusterAsyncData = api.useAsyncCommands { command ->
+    command.get(id)
 }
 ```
 
