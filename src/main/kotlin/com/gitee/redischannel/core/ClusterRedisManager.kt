@@ -341,15 +341,15 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         }
     }
 
-    override fun <T> useCommands(block: Function<RedisClusterPubSubCommands<String, String>, T>): T? {
+    override fun <T> usePubSubCommands(block: Function<RedisClusterPubSubCommands<String, String>, T>): T? {
         return block.apply(pubSubConnection.sync())
     }
 
-    override fun <T> useAsyncCommands(block: Function<RedisClusterPubSubAsyncCommands<String, String>, T>): T? {
+    override fun <T> usePubSubAsyncCommands(block: Function<RedisClusterPubSubAsyncCommands<String, String>, T>): T? {
         return block.apply(pubSubConnection.async())
     }
 
-    override fun <T> useReactiveCommands(block: Function<RedisClusterPubSubReactiveCommands<String, String>, T>): T? {
+    override fun <T> usePubSubReactiveCommands(block: Function<RedisClusterPubSubReactiveCommands<String, String>, T>): T? {
         return block.apply(pubSubConnection.reactive())
     }
 }

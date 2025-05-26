@@ -12,19 +12,19 @@ interface RedisPubSubAPI {
      * @param block 匿名函数
      * @return [T]
      * */
-    fun <T> useCommands(block: Function<RedisPubSubCommands<String, String>, T>): T?
+    fun <T> usePubSubCommands(block: Function<RedisPubSubCommands<String, String>, T>): T?
 
     /**
      * 使用异步命令
      * @param block 匿名函数
      * @return [T]
      * */
-    fun <T> useAsyncCommands(block: Function<RedisPubSubAsyncCommands<String, String>, T>): T?
+    fun <T> usePubSubAsyncCommands(block: Function<RedisPubSubAsyncCommands<String, String>, T>): T?
 
     /**
      * 使用反应式命令
      * @param block 匿名函数
      * @return [T]
      * */
-    fun <T> useReactiveCommands(block: Function<RedisPubSubReactiveCommands<String, String>, T>): T?
+    fun <T> usePubSubReactiveCommands(block: Function<RedisPubSubReactiveCommands<String, String>, T>): T?
 }

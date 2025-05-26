@@ -449,15 +449,15 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
         }
     }
 
-    override fun <T> useCommands(block: Function<RedisPubSubCommands<String, String>, T>): T? {
+    override fun <T> usePubSubCommands(block: Function<RedisPubSubCommands<String, String>, T>): T? {
         return block.apply(pubSubConnection.sync())
     }
 
-    override fun <T> useAsyncCommands(block: Function<RedisPubSubAsyncCommands<String, String>, T>): T? {
+    override fun <T> usePubSubAsyncCommands(block: Function<RedisPubSubAsyncCommands<String, String>, T>): T? {
         return block.apply(pubSubConnection.async())
     }
 
-    override fun <T> useReactiveCommands(block: Function<RedisPubSubReactiveCommands<String, String>, T>): T? {
+    override fun <T> usePubSubReactiveCommands(block: Function<RedisPubSubReactiveCommands<String, String>, T>): T? {
         return block.apply(pubSubConnection.reactive())
     }
 }
