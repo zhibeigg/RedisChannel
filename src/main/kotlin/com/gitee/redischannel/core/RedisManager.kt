@@ -3,39 +3,32 @@ package com.gitee.redischannel.core
 import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
-import io.lettuce.core.*
+import com.gitee.redischannel.api.RedisCommandAPI
+import io.lettuce.core.ClientOptions
+import io.lettuce.core.RedisClient
+import io.lettuce.core.SetArgs
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.api.async.RedisAsyncCommands
 import io.lettuce.core.api.sync.RedisCommands
-import io.lettuce.core.cluster.ClusterClientOptions
-import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
-import io.lettuce.core.cluster.RedisClusterClient
-import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
 import io.lettuce.core.codec.StringCodec
 import io.lettuce.core.masterreplica.MasterReplica
 import io.lettuce.core.masterreplica.StatefulRedisMasterReplicaConnection
 import io.lettuce.core.resource.DefaultClientResources
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig
 import taboolib.common.LifeCycle
 import taboolib.common.env.RuntimeDependencies
 import taboolib.common.env.RuntimeDependency
 import taboolib.common.platform.Awake
 import taboolib.common.platform.function.warning
-import taboolib.module.configuration.Config
-import taboolib.module.configuration.Configuration
 import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
-import java.util.function.Supplier
-import kotlin.time.toJavaDuration
-
 
 @RuntimeDependencies(
     RuntimeDependency(
         "!io.lettuce:lettuce-core:6.6.0.RELEASE",
-        test = "!com.gitee.redischannel.lettuce.core.RedisURI",
-        relocate = ["!io.lettuce", "!com.gitee.redischannel.lettuce", "!io.netty", "!com.gitee.redischannel.netty", "!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2"],
+        test = "!io.lettuce.core.RedisURI",
+        relocate = ["!io.netty", "!com.gitee.redischannel.netty", "!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2"],
         transitive = false
     ),
     RuntimeDependency(
@@ -87,7 +80,7 @@ import kotlin.time.toJavaDuration
         transitive = false
     )
 )
-internal object RedisManager: RedisChannelAPI {
+internal object RedisManager: RedisChannelAPI, RedisCommandAPI {
 
     lateinit var client: RedisClient
     lateinit var pool: GenericObjectPool<StatefulRedisConnection<String, String>>
@@ -153,7 +146,7 @@ internal object RedisManager: RedisChannelAPI {
         }
     }
 
-    fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
+    override fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
         if (enabledSlaves) {
             val connection = try {
                 masterReplicaPool.borrowObject()
@@ -189,7 +182,7 @@ internal object RedisManager: RedisChannelAPI {
         }
     }
 
-    fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): T? {
+    override fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): T? {
         if (enabledSlaves) {
             val connection = try {
                 masterReplicaPool.borrowObject()

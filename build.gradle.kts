@@ -7,7 +7,7 @@ val publishPassword: String by project
 val build: String by project
 
 plugins {
-    java
+    `java-library`
     `maven-publish`
     kotlin("jvm") version "2.1.20"
     id("io.izzel.taboolib") version "2.0.23"
@@ -29,7 +29,6 @@ taboolib {
         taboolib = "6.2.3-test"
         coroutines = "1.8.0"
     }
-    relocate("io.lettuce", "com.gitee.redischannel.lettuce")
     relocate("org.apache.commons.pool2", "com.gitee.redischannel.commons.pool2")
     relocate("io.netty", "com.gitee.redischannel.netty")
 }
@@ -43,7 +42,7 @@ dependencies {
     compileOnly("ink.ptms.core:v12004:12004:mapped")
     compileOnly("ink.ptms.core:v12004:12004:universal")
 
-    compileOnly("io.lettuce:lettuce-core:6.6.0.RELEASE")
+    api("io.lettuce:lettuce-core:6.6.0.RELEASE")
     compileOnly("org.apache.commons:commons-pool2:2.12.1")
 
     compileOnly(kotlin("stdlib"))

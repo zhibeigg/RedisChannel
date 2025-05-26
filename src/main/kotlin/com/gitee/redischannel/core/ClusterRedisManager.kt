@@ -3,13 +3,14 @@ package com.gitee.redischannel.core
 import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
+import com.gitee.redischannel.api.RedisClusterCommandAPI
 import io.lettuce.core.SetArgs
 import io.lettuce.core.cluster.ClusterClientOptions
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
 import io.lettuce.core.cluster.RedisClusterClient
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
-import io.lettuce.core.cluster.api.async.RedisAdvancedClusterAsyncCommands
-import io.lettuce.core.cluster.api.sync.RedisAdvancedClusterCommands
+import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands
+import io.lettuce.core.cluster.api.sync.RedisClusterCommands
 import io.lettuce.core.resource.DefaultClientResources
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
@@ -20,7 +21,7 @@ import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
 import kotlin.time.toJavaDuration
 
-internal object ClusterRedisManager: RedisChannelAPI {
+internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI {
 
     lateinit var client: RedisClusterClient
     lateinit var pool: GenericObjectPool<StatefulRedisClusterConnection<String, String>>
@@ -88,7 +89,7 @@ internal object ClusterRedisManager: RedisChannelAPI {
         }
     }
 
-    fun <T> useCommands(block: (RedisAdvancedClusterCommands<String, String>) -> T): T? {
+    override fun <T> useCommands(block: (RedisClusterCommands<String, String>) -> T): T? {
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {
@@ -106,7 +107,7 @@ internal object ClusterRedisManager: RedisChannelAPI {
         }
     }
 
-    fun <T> useAsyncCommands(block: (RedisAdvancedClusterAsyncCommands<String, String>) -> T): T? {
+    override fun <T> useAsyncCommands(block: (RedisClusterAsyncCommands<String, String>) -> T): T? {
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {
