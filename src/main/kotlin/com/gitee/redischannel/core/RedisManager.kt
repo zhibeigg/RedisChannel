@@ -5,6 +5,9 @@ import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
+import com.gitee.redischannel.api.proxy.ProxyAPI
+import com.gitee.redischannel.api.proxy.RedisProxyAsyncCommand
+import com.gitee.redischannel.api.proxy.RedisProxyCommand
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
 import io.lettuce.core.SetArgs
@@ -87,7 +90,7 @@ import java.util.function.Function
         transitive = false
     )
 )
-internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
+internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, ProxyAPI {
 
     lateinit var client: RedisClient
     lateinit var pool: GenericObjectPool<StatefulRedisConnection<String, String>>
@@ -459,5 +462,79 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
 
     override fun <T> usePubSubReactiveCommands(block: Function<RedisPubSubReactiveCommands<String, String>, T>): T? {
         return block.apply(pubSubConnection.reactive())
+    }
+
+    override fun getProxyCommand(): RedisProxyCommand<String, String> {
+        val command = if (enabledSlaves) {
+            val connection = try {
+                masterReplicaPool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                null
+            }
+
+            try {
+                connection?.sync()
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                masterReplicaPool.returnObject(connection)
+            }
+        } else {
+            val connection = try {
+                pool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                null
+            }
+
+            try {
+                connection?.sync()
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                pool.returnObject(connection)
+            }
+        }
+        return RedisProxyCommand(command!!)
+    }
+
+    override fun getProxyAsyncCommand(): RedisProxyAsyncCommand<String, String> {
+        val command = if (enabledSlaves) {
+            val connection = try {
+                masterReplicaPool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                null
+            }
+
+            try {
+                connection?.async()
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                masterReplicaPool.returnObject(connection)
+            }
+        } else {
+            val connection = try {
+                pool.borrowObject()
+            } catch (e: Exception) {
+                warning("Failed to borrow connection: ${e.message}")
+                null
+            }
+
+            try {
+                connection?.async()
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                null
+            } finally {
+                pool.returnObject(connection)
+            }
+        }
+        return RedisProxyAsyncCommand(command!!)
     }
 }
