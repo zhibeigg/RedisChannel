@@ -1,5 +1,7 @@
 package com.gitee.redischannel.api.proxy
 
+import java.util.concurrent.CompletableFuture
+
 interface ProxyAPI {
 
     /**
@@ -10,5 +12,5 @@ interface ProxyAPI {
     /**
      * 代理集群/单机 AsyncCommand
      * */
-    fun getProxyAsyncCommand(): RedisProxyAsyncCommand<String, String>
+    fun getProxyAsyncCommand(): CompletableFuture<RedisProxyAsyncCommand<String, String>>
 }

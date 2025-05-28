@@ -8,6 +8,7 @@ import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
 import io.lettuce.core.masterreplica.StatefulRedisMasterReplicaConnection
+import io.lettuce.core.support.BoundedPoolConfig
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig
 import taboolib.common.platform.function.getDataFolder
 import taboolib.common5.cint
@@ -67,6 +68,14 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
             configurationSection.getString("softMinEvictableIdleDuration")?.let { Duration.parse(it) }
         val numTestsPerEvictionRun = configurationSection.getInt("numTestsPerEvictionRun", 3)
 
+        fun asyncPoolConfig(): BoundedPoolConfig {
+            return BoundedPoolConfig.builder()
+                .maxTotal(this@Pool.maxTotal)
+                .maxIdle(this@Pool.maxIdle)
+                .minIdle(this@Pool.minIdle)
+                .build()
+        }
+
         fun poolConfig(): GenericObjectPoolConfig<StatefulRedisConnection<String, String>> {
             return GenericObjectPoolConfig<StatefulRedisConnection<String, String>>().apply {
                 lifo = this@Pool.lifo
@@ -90,6 +99,14 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
             }
         }
 
+        fun asyncClusterPoolConfig(): BoundedPoolConfig {
+            return BoundedPoolConfig.builder()
+                .maxTotal(this@Pool.maxTotal)
+                .maxIdle(this@Pool.maxIdle)
+                .minIdle(this@Pool.minIdle)
+                .build()
+        }
+
         fun clusterPoolConfig(): GenericObjectPoolConfig<StatefulRedisClusterConnection<String, String>> {
             return GenericObjectPoolConfig<StatefulRedisClusterConnection<String, String>>().apply {
                 lifo = this@Pool.lifo
@@ -111,6 +128,14 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
                 this@Pool.softMinEvictableIdleDuration?.let { softMinEvictableIdleDuration = it.toJavaDuration() }
                 numTestsPerEvictionRun = this@Pool.numTestsPerEvictionRun
             }
+        }
+
+        fun asyncSlavesPoolConfig(): BoundedPoolConfig {
+            return BoundedPoolConfig.builder()
+                .maxTotal(this@Pool.maxTotal)
+                .maxIdle(this@Pool.maxIdle)
+                .minIdle(this@Pool.minIdle)
+                .build()
         }
 
         fun slavesPoolConfig(): GenericObjectPoolConfig<StatefulRedisMasterReplicaConnection<String, String>> {

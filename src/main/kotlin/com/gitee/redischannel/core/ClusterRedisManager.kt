@@ -1,14 +1,12 @@
 package com.gitee.redischannel.core
 
 import com.gitee.redischannel.RedisChannelPlugin
-import com.gitee.redischannel.api.JsonData
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
 import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
 import com.gitee.redischannel.api.proxy.ProxyAPI
 import com.gitee.redischannel.api.proxy.RedisProxyAsyncCommand
 import com.gitee.redischannel.api.proxy.RedisProxyCommand
-import io.lettuce.core.SetArgs
 import io.lettuce.core.cluster.ClusterClientOptions
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
 import io.lettuce.core.cluster.RedisClusterClient
@@ -20,7 +18,10 @@ import io.lettuce.core.cluster.pubsub.StatefulRedisClusterPubSubConnection
 import io.lettuce.core.cluster.pubsub.api.async.RedisClusterPubSubAsyncCommands
 import io.lettuce.core.cluster.pubsub.api.reactive.RedisClusterPubSubReactiveCommands
 import io.lettuce.core.cluster.pubsub.api.sync.RedisClusterPubSubCommands
+import io.lettuce.core.codec.StringCodec
 import io.lettuce.core.resource.DefaultClientResources
+import io.lettuce.core.support.AsyncConnectionPoolSupport
+import io.lettuce.core.support.BoundedAsyncPool
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
 import taboolib.common.LifeCycle
@@ -34,7 +35,10 @@ import kotlin.time.toJavaDuration
 internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, RedisClusterPubSubAPI, ProxyAPI {
 
     lateinit var client: RedisClusterClient
+
     lateinit var pool: GenericObjectPool<StatefulRedisClusterConnection<String, String>>
+    lateinit var asyncPool: BoundedAsyncPool<StatefulRedisClusterConnection<String, String>>
+
     lateinit var pubSubConnection: StatefulRedisClusterPubSubConnection<String, String>
 
     @Parallel(runOn = LifeCycle.ENABLE)
@@ -81,6 +85,15 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
 
         client = RedisClusterClient.create(resource.build(), uris)
 
+        asyncPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
+            { client.connectAsync(StringCodec.UTF8).whenComplete { v, _ ->
+                if (redis.enableSlaves) {
+                    val slaves = redis.slaves
+                    v.readFrom = slaves.readFrom
+                }
+            } },
+            redis.pool.asyncClusterPoolConfig()
+        )
         pool = ConnectionPoolSupport.createGenericObjectPool(
             { client.connect().apply {
                 if (redis.enableSlaves) {
@@ -96,6 +109,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
     @Awake(LifeCycle.DISABLE)
     private fun stop() {
         if (RedisChannelPlugin.type == RedisChannelPlugin.Type.CLUSTER) {
+            asyncPool.close()
             pool.close()
             client.shutdown()
         }
@@ -105,11 +119,11 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         return useCommands { block.apply(it) }
     }
 
-    override fun <T> useAsyncCommands(block: Function<RedisClusterAsyncCommands<String, String>, T>): T? {
+    override fun <T> useAsyncCommands(block: Function<RedisClusterAsyncCommands<String, String>, T>): CompletableFuture<T?> {
         return useAsyncCommands { block.apply(it) }
     }
 
-    override fun <T> useReactiveCommands(block: Function<RedisClusterReactiveCommands<String, String>, T>): T? {
+    override fun <T> useReactiveCommands(block: Function<RedisClusterReactiveCommands<String, String>, T>): CompletableFuture<T?> {
         return useReactiveCommands { block.apply(it) }
     }
 
@@ -131,213 +145,39 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         }
     }
 
-    fun <T> useAsyncCommands(block: (RedisClusterAsyncCommands<String, String>) -> T): T? {
-        val connection = try {
-            pool.borrowObject()
-        } catch (e: Exception) {
-            warning("Failed to borrow connection: ${e.message}")
-            return null
-        }
-
+    fun <T> useAsyncCommands(block: (RedisClusterAsyncCommands<String, String>) -> T): CompletableFuture<T?> {
         return try {
-            block(connection.async())
-        } catch (e: Exception) {
-            warning("Redis operation failed: ${e.message}")
-            null
-        } finally {
-            pool.returnObject(connection)
-        }
-    }
-
-    fun <T> useReactiveCommands(block: (RedisClusterReactiveCommands<String, String>) -> T): T? {
-        val connection = try {
-            pool.borrowObject()
-        } catch (e: Exception) {
-            warning("Failed to borrow connection: ${e.message}")
-            return null
-        }
-
-        return try {
-            block(connection.reactive())
-        } catch (e: Exception) {
-            warning("Redis operation failed: ${e.message}")
-            null
-        } finally {
-            pool.returnObject(connection)
-        }
-    }
-
-    /**
-     * 设置缓存数据，默认过期时间10秒
-     * */
-    override fun set(key: String, value: JsonData, timeout: Long, async: Boolean) {
-        if (async) {
-            useAsyncCommands { commands ->
-                commands.set(key, value.toJson(), SetArgs().ex(timeout))
-                // 返回操作结果
-                true
-            }
-        } else {
-            useCommands { commands ->
-                commands.set(key, value.toJson(), SetArgs().ex(timeout))
-                // 返回操作结果
-                true
-            }
-        }
-    }
-
-    /**
-     * 设置缓存数据，默认过期时间10秒
-     * */
-    override fun set(key: String, value: String, timeout: Long, async: Boolean) {
-        if (async) {
-            useAsyncCommands { commands ->
-                commands.set(key, value, SetArgs().ex(timeout))
-                // 返回操作结果
-                true
-            }
-        } else {
-            useCommands { commands ->
-                commands.set(key, value, SetArgs().ex(timeout))
-                // 返回操作结果
-                true
-            }
-        }
-    }
-
-    /**
-     * 设置哈希缓存数据，默认过期时间10秒
-     * */
-    override fun hSet(key: String, field: String, value: String, timeout: Long, async: Boolean) {
-        if (async) {
-            useAsyncCommands { commands ->
-                commands.hset(key, field, value)
-                commands.hexpire(key, timeout, field)
-                // 返回操作结果
-                true
-            }
-        } else {
-            useCommands { commands ->
-                commands.hset(key, field, value)
-                commands.hexpire(key, timeout, field)
-                // 返回操作结果
-                true
-            }
-        }
-    }
-
-    /**
-     * 获取缓存数据
-     * */
-    override fun get(key: String): String? {
-        return useCommands { commands ->
-            commands.get(key)
-        }
-    }
-
-
-    override fun asyncGet(key: String): CompletableFuture<String?> {
-        val future = CompletableFuture<String?>()
-        useAsyncCommands { commands ->
-            commands.get(key).whenComplete { v, throwable ->
-                if (v != null) {
-                    future.complete(v)
-                } else {
-                    future.completeExceptionally(throwable)
+            asyncPool.acquire().thenApply { obj ->
+                try {
+                    block(obj.async())
+                } catch (e: Throwable) {
+                    warning("Redis operation failed: ${e.message}")
+                    return@thenApply null
+                } finally {
+                    asyncPool.release(obj)
                 }
             }
-        }
-        return future
-    }
-
-    /**
-     * 获取缓存数据
-     * */
-    override fun hGet(key: String, field: String): String? {
-        return useCommands { commands ->
-            commands.hget(key, field)
+        } catch (e: Throwable) {
+            warning("Failed to acquire connection: ${e.message}")
+            CompletableFuture.completedFuture(null)
         }
     }
 
-
-    override fun hAsyncGet(key: String, field: String): CompletableFuture<String?> {
-        val future = CompletableFuture<String?>()
-        useAsyncCommands { commands ->
-            commands.hget(key, field).whenComplete { v, throwable ->
-                if (v != null) {
-                    future.complete(v)
-                } else {
-                    future.completeExceptionally(throwable)
+    fun <T> useReactiveCommands(block: (RedisClusterReactiveCommands<String, String>) -> T): CompletableFuture<T?> {
+        return try {
+            asyncPool.acquire().thenApply { obj ->
+                try {
+                    block(obj.reactive())
+                } catch (e: Throwable) {
+                    warning("Redis operation failed: ${e.message}")
+                    return@thenApply null
+                } finally {
+                    asyncPool.release(obj)
                 }
             }
-        }
-        return future
-    }
-
-    override fun remove(key: String, async: Boolean) {
-        if (async) {
-            useAsyncCommands { commands ->
-                commands.del(key)
-                // 返回操作结果
-                true
-            }
-        } else {
-            useCommands { commands ->
-                commands.del(key)
-                // 返回操作结果
-                true
-            }
-        }
-    }
-
-    override fun hRemove(key: String, field: String, async: Boolean) {
-        if (async) {
-            useAsyncCommands { commands ->
-                commands.hdel(key, field)
-                // 返回操作结果
-                true
-            }
-        } else {
-            useCommands { commands ->
-                commands.hdel(key, field)
-                // 返回操作结果
-                true
-            }
-        }
-    }
-
-    /**
-     * 刷新缓存数据
-     * */
-    override fun refreshExpire(key: String, timeout: Long, async: Boolean) {
-        if (async) {
-            useAsyncCommands { commands ->
-                commands.expire(key, timeout)
-                // 返回操作结果
-                true
-            }
-        } else {
-            useCommands { commands ->
-                commands.expire(key, timeout)
-                // 返回操作结果
-                true
-            }
-        }
-    }
-
-    override fun publish(channel: String, message: String, async: Boolean) {
-        if (async) {
-            useAsyncCommands { commands ->
-                commands.publish(channel, message)
-                // 返回操作结果
-                true
-            }
-        } else {
-            useCommands { commands ->
-                commands.publish(channel, message)
-                // 返回操作结果
-                true
-            }
+        } catch (e: Throwable) {
+            warning("Failed to acquire connection: ${e.message}")
+            CompletableFuture.completedFuture(null)
         }
     }
 
@@ -372,22 +212,25 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         return RedisProxyCommand(command!!)
     }
 
-    override fun getProxyAsyncCommand(): RedisProxyAsyncCommand<String, String> {
-        val connection = try {
-            pool.borrowObject()
+    override fun getProxyAsyncCommand(): CompletableFuture<RedisProxyAsyncCommand<String, String>> {
+        val command = try {
+            asyncPool.acquire().thenApply {
+                try {
+                    it.async()
+                } catch (e: Exception) {
+                    warning("Redis operation failed: ${e.message}")
+                    null
+                } finally {
+                    asyncPool.release(it)
+                }
+            }
         } catch (e: Exception) {
             warning("Failed to borrow connection: ${e.message}")
-            null
+            return CompletableFuture.completedFuture(null)
         }
 
-        val command = try {
-            connection?.async()
-        } catch (e: Exception) {
-            warning("Redis operation failed: ${e.message}")
-            null
-        } finally {
-            pool.returnObject(connection)
+        return command.thenApply {
+            RedisProxyAsyncCommand(it!!)
         }
-        return RedisProxyAsyncCommand(command!!)
     }
 }
