@@ -8,10 +8,11 @@ import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
 import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
 import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
-import com.gitee.redischannel.api.proxy.RedisProxyAsyncCommand
 import com.gitee.redischannel.api.proxy.RedisProxyCommand
 import com.gitee.redischannel.core.ClusterRedisManager
 import com.gitee.redischannel.core.RedisManager
+import io.lettuce.core.AbstractRedisAsyncCommands
+import io.lettuce.core.internal.AbstractInvocationHandler
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -38,19 +39,9 @@ fun RedisChannelAPI.clusterPubSubAPI(): RedisClusterPubSubAPI = this as RedisClu
 fun RedisChannelAPI.pubSubAPI(): RedisPubSubAPI = this as RedisPubSubAPI
 
 /**
- * 获取代理的命令
- * */
-fun RedisChannelAPI.proxyCommand(): RedisProxyCommand<String, String> {
-    return when (type) {
-        CLUSTER -> ClusterRedisManager
-        SINGLE -> RedisManager
-    }.getProxyCommand()
-}
-
-/**
  * 获取代理的异步命令
  * */
-fun RedisChannelAPI.proxyAsyncCommand(): CompletableFuture<RedisProxyAsyncCommand<String, String>> {
+fun RedisChannelAPI.proxyAsyncCommand(): CompletableFuture<AbstractRedisAsyncCommands<String, String>> {
     return when (type) {
         CLUSTER -> ClusterRedisManager
         SINGLE -> RedisManager

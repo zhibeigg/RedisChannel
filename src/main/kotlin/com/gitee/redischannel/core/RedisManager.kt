@@ -5,15 +5,29 @@ import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
 import com.gitee.redischannel.api.proxy.ProxyAPI
-import com.gitee.redischannel.api.proxy.RedisProxyAsyncCommand
 import com.gitee.redischannel.api.proxy.RedisProxyCommand
+import io.lettuce.core.AbstractRedisAsyncCommands
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
-import io.lettuce.core.SetArgs
 import io.lettuce.core.api.StatefulRedisConnection
 import io.lettuce.core.api.async.RedisAsyncCommands
 import io.lettuce.core.api.reactive.RedisReactiveCommands
+import io.lettuce.core.api.sync.BaseRedisCommands
+import io.lettuce.core.api.sync.RedisAclCommands
 import io.lettuce.core.api.sync.RedisCommands
+import io.lettuce.core.api.sync.RedisFunctionCommands
+import io.lettuce.core.api.sync.RedisGeoCommands
+import io.lettuce.core.api.sync.RedisHLLCommands
+import io.lettuce.core.api.sync.RedisHashCommands
+import io.lettuce.core.api.sync.RedisJsonCommands
+import io.lettuce.core.api.sync.RedisKeyCommands
+import io.lettuce.core.api.sync.RedisListCommands
+import io.lettuce.core.api.sync.RedisScriptingCommands
+import io.lettuce.core.api.sync.RedisServerCommands
+import io.lettuce.core.api.sync.RedisSetCommands
+import io.lettuce.core.api.sync.RedisSortedSetCommands
+import io.lettuce.core.api.sync.RedisStreamCommands
+import io.lettuce.core.api.sync.RedisStringCommands
 import io.lettuce.core.codec.StringCodec
 import io.lettuce.core.masterreplica.MasterReplica
 import io.lettuce.core.masterreplica.StatefulRedisMasterReplicaConnection
@@ -309,7 +323,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
         return block.apply(pubSubConnection.reactive())
     }
 
-    override fun getProxyCommand(): RedisProxyCommand<String, String> {
+    fun getProxyCommand(): RedisCommands<String, String> {
         val command = if (enabledSlaves) {
             val connection = try {
                 masterReplicaPool.borrowObject()
@@ -343,10 +357,11 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
                 pool.returnObject(connection)
             }
         }
-        return RedisProxyCommand(command!!)
+        return command!!
     }
 
-    override fun getProxyAsyncCommand(): CompletableFuture<RedisProxyAsyncCommand<String, String>> {
+    @Suppress("UNCHECKED_CAST")
+    override fun getProxyAsyncCommand(): CompletableFuture<AbstractRedisAsyncCommands<String, String>> {
         val command = if (enabledSlaves) {
             try {
                 masterAsyncReplicaPool.acquire().thenApply { obj ->
@@ -380,8 +395,69 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
                 return CompletableFuture.completedFuture(null)
             }
         }
+
         return command.thenApply {
-            RedisProxyAsyncCommand(it)
+            it as AbstractRedisAsyncCommands<String, String>
         }
+    }
+
+    override fun baseCommand(): BaseRedisCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun aclCommand(): RedisAclCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun functionCommand(): RedisFunctionCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun geoCommand(): RedisGeoCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun hashCommand(): RedisHashCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun hllCommand(): RedisHLLCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun keyCommand(): RedisKeyCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun listCommand(): RedisListCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun scriptingCommand(): RedisScriptingCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun serverCommand(): RedisServerCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun setCommand(): RedisSetCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun sortedSetCommand(): RedisSortedSetCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun streamCommand(): RedisStreamCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun stringCommand(): RedisStringCommands<String, String> {
+        return getProxyCommand()
+    }
+
+    override fun jsonCommand(): RedisJsonCommands<String, String> {
+        return getProxyCommand()
     }
 }
