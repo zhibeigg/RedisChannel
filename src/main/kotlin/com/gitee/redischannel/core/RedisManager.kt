@@ -5,7 +5,6 @@ import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
 import com.gitee.redischannel.api.proxy.ProxyAPI
-import com.gitee.redischannel.api.proxy.RedisProxyCommand
 import io.lettuce.core.AbstractRedisAsyncCommands
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
