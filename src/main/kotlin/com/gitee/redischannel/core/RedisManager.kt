@@ -6,6 +6,7 @@ import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
 import com.gitee.redischannel.api.proxy.ProxyAPI
 import io.lettuce.core.AbstractRedisAsyncCommands
+import io.lettuce.core.AbstractRedisReactiveCommands
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
 import io.lettuce.core.api.StatefulRedisConnection
@@ -412,6 +413,47 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
 
         return command.thenApply {
             it as AbstractRedisAsyncCommands<String, String>
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun getProxyReactiveCommand(): CompletableFuture<AbstractRedisReactiveCommands<String, String>> {
+        val command = if (enabledSlaves) {
+            try {
+                masterAsyncReplicaPool.acquire().thenApply { obj ->
+                    try {
+                        obj.reactive()
+                    } catch (e: Throwable) {
+                        warning("Redis operation failed: ${e.message}")
+                        return@thenApply null
+                    } finally {
+                        masterAsyncReplicaPool.release(obj)
+                    }
+                }
+            } catch (e: Throwable) {
+                warning("Failed to acquire connection: ${e.message}")
+                return CompletableFuture.completedFuture(null)
+            }
+        } else {
+            try {
+                asyncPool.acquire().thenApply { obj ->
+                    try {
+                        obj.reactive()
+                    } catch (e: Throwable) {
+                        warning("Redis operation failed: ${e.message}")
+                        return@thenApply null
+                    } finally {
+                        asyncPool.release(obj)
+                    }
+                }
+            } catch (e: Throwable) {
+                warning("Failed to acquire connection: ${e.message}")
+                return CompletableFuture.completedFuture(null)
+            }
+        }
+
+        return command.thenApply {
+            it as AbstractRedisReactiveCommands<String, String>
         }
     }
 

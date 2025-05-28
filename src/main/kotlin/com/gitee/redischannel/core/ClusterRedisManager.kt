@@ -6,6 +6,7 @@ import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
 import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
 import com.gitee.redischannel.api.proxy.ProxyAPI
 import io.lettuce.core.AbstractRedisAsyncCommands
+import io.lettuce.core.AbstractRedisReactiveCommands
 import io.lettuce.core.api.sync.BaseRedisCommands
 import io.lettuce.core.api.sync.RedisAclCommands
 import io.lettuce.core.api.sync.RedisFunctionCommands
@@ -248,6 +249,29 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
 
         return command.thenApply {
             it as AbstractRedisAsyncCommands<String, String>
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun getProxyReactiveCommand(): CompletableFuture<AbstractRedisReactiveCommands<String, String>> {
+        val command = try {
+            asyncPool.acquire().thenApply {
+                try {
+                    it.reactive()
+                } catch (e: Exception) {
+                    warning("Redis operation failed: ${e.message}")
+                    null
+                } finally {
+                    asyncPool.release(it)
+                }
+            }
+        } catch (e: Exception) {
+            warning("Failed to borrow connection: ${e.message}")
+            return CompletableFuture.completedFuture(null)
+        }
+
+        return command.thenApply {
+            it as AbstractRedisReactiveCommands<String, String>
         }
     }
 

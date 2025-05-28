@@ -29,19 +29,58 @@ dependencies {
     implementation("com.gitee.redischannel:RedisChannel:{VERSION}:api")
 }
 ```
-### 获取数据/存储数据
+### 直接调用自动判断 集群/单机
 
 ```kotlin
 val api = RedisChannelPlugin.api
 val id = "player"
 
-val data = api.get(id)
-api.refreshExpire(id, 3600, false)
+// 读取数据
+val data = api.stringCommand()[id]
 
-api.set(id, data, 3600, false)
+// 更新过期时间
+api.keyCommand().expire(id, 3600)
+
+// 保存
+api.stringCommand().setex(id, 3600, data)
+
+// 异步使用
+api.proxyAsyncCommand().thenAccept { command ->
+    
+    // 读取数据
+    val data = command.stringCommand()[id]
+
+    // 更新过期时间
+    command.expire(id, 3600)
+
+    // 保存
+    command.setex(id, 3600, data)
+}
+
+// 反应式使用
+api.getProxyReactiveCommand().thenApply { command ->
+    
+    val result = command.set(id, "")
+        .then(command.get(id))
+        .doOnNext { value ->
+            println("获取的值: $value")
+        }
+
+    result.subscribe(
+        {
+            println("value $it")
+        },
+        {
+            println("error ${it.message}")
+        },
+        {
+            println("操作完成")
+        }
+    )
+}
 ```
 
-### 高级用法,直接操作command
+### 获取集群/单机的 Command
 
 ```kotlin
 val api = RedisChannelPlugin.api.commandAPI()
@@ -55,6 +94,9 @@ val data = api.useCommands { command ->
 val asyncData = api.useAsyncCommands { command ->
     command.get(id)
 }
+val asyncData = api.useReactiveCommands { command ->
+    //......
+}
 
 // 集群模式
 val clusterData = api.useCommands { command ->
@@ -62,6 +104,9 @@ val clusterData = api.useCommands { command ->
 }
 val clusterAsyncData = api.useAsyncCommands { command ->
     command.get(id)
+}
+val asyncData = api.useReactiveCommands { command ->
+    //......
 }
 ```
 

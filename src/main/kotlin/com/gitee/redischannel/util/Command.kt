@@ -11,6 +11,7 @@ import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
 import com.gitee.redischannel.core.ClusterRedisManager
 import com.gitee.redischannel.core.RedisManager
 import io.lettuce.core.AbstractRedisAsyncCommands
+import io.lettuce.core.AbstractRedisReactiveCommands
 import io.lettuce.core.internal.AbstractInvocationHandler
 import java.util.concurrent.CompletableFuture
 
@@ -41,8 +42,37 @@ fun RedisChannelAPI.pubSubAPI(): RedisPubSubAPI = this as RedisPubSubAPI
  * 获取代理的异步命令
  * */
 fun RedisChannelAPI.proxyAsyncCommand(): CompletableFuture<AbstractRedisAsyncCommands<String, String>> {
+    RedisManager.getProxyReactiveCommand().thenApply { command ->
+        val result = command.set("", "")
+            .then(command.get(""))
+            .doOnNext { value ->
+                println("获取的值: $value")
+            }
+
+        result.subscribe(
+            {
+                println("value $it")
+            },
+            {
+                println("error ${it.message}")
+            },
+            {
+                println("操作完成")
+            }
+        )
+    }
     return when (type) {
         CLUSTER -> ClusterRedisManager
         SINGLE -> RedisManager
     }.getProxyAsyncCommand()
+}
+
+/**
+ * 获取代理的反应式命令
+ * */
+fun RedisChannelAPI.proxyReactiveCommand(): CompletableFuture<AbstractRedisReactiveCommands<String, String>> {
+    return when (type) {
+        CLUSTER -> ClusterRedisManager
+        SINGLE -> RedisManager
+    }.getProxyReactiveCommand()
 }
