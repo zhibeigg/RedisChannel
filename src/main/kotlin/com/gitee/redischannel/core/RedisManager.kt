@@ -52,14 +52,29 @@ import java.util.function.Function
     RuntimeDependency(
         "!io.lettuce:lettuce-core:6.6.0.RELEASE",
         test = "!io.lettuce.core.RedisURI",
-        relocate = ["!io.netty", "!com.gitee.redischannel.netty", "!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2"],
+        relocate = ["!io.netty", "!com.gitee.redischannel.netty",
+            "!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2",
+            "!reactor", "!com.gitee.redischannel.reactor",
+            "!org.reactivestreams", "!com.gitee.redischannel.reactivestreams"],
+        transitive = true
+    ),
+    RuntimeDependency(
+        "!org.reactivestreams:reactive-streams:1.0.4",
+        test = "!com.gitee.redischannel.reactivestreams.Publisher",
+        relocate = ["!org.reactivestreams", "!com.gitee.redischannel.reactivestreams"],
+        transitive = false
+    ),
+    RuntimeDependency(
+        "!io.projectreactor:reactor-core:3.6.6",
+        test = "!com.gitee.redischannel.reactor.core.CorePublisher",
+        relocate = ["!reactor", "!com.gitee.redischannel.reactor", "!org.reactivestreams", "!com.gitee.redischannel.reactivestreams"],
         transitive = false
     ),
     RuntimeDependency(
         "!org.apache.commons:commons-pool2:2.12.1",
         test = "!com.gitee.redischannel.commons.pool2.BaseObject",
         relocate = ["!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2"],
-        transitive = false
+        transitive = true
     ),
     RuntimeDependency(
         value = "!io.netty:netty-common:4.1.118.Final",

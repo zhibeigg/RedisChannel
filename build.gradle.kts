@@ -29,6 +29,8 @@ taboolib {
         taboolib = "6.2.3-test"
         coroutines = "1.8.0"
     }
+    relocate("org.reactivestreams", "com.gitee.redischannel.reactivestreams")
+    relocate("reactor", "com.gitee.redischannel.reactor")
     relocate("org.apache.commons.pool2", "com.gitee.redischannel.commons.pool2")
     relocate("io.netty", "com.gitee.redischannel.netty")
 }
@@ -42,8 +44,12 @@ dependencies {
     compileOnly("ink.ptms.core:v12004:12004:mapped")
     compileOnly("ink.ptms.core:v12004:12004:universal")
 
-    api("io.lettuce:lettuce-core:6.6.0.RELEASE")
-    compileOnly("org.apache.commons:commons-pool2:2.12.1")
+    api("io.lettuce:lettuce-core:6.6.0.RELEASE") {
+        isTransitive = true
+    }
+    implementation("org.apache.commons:commons-pool2:2.12.1") {
+        isTransitive = true
+    }
 
     compileOnly(kotlin("stdlib"))
     compileOnly(fileTree("libs"))
