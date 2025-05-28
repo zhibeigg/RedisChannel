@@ -8,6 +8,8 @@ import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
 import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
 import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
+import com.gitee.redischannel.api.proxy.RedisProxyAsyncCommand
+import com.gitee.redischannel.api.proxy.RedisProxyCommand
 import com.gitee.redischannel.core.ClusterRedisManager
 import com.gitee.redischannel.core.RedisManager
 import java.util.concurrent.CompletableFuture
