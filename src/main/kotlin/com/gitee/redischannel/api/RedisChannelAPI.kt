@@ -1,14 +1,21 @@
 package com.gitee.redischannel.api
 
-import io.lettuce.core.api.StatefulConnection
+import io.lettuce.core.api.StatefulRedisConnection
+import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
 import java.util.concurrent.CompletableFuture
 import java.util.function.Function
 
-interface RedisChannelAPI<T : StatefulConnection<*, *>> {
+interface RedisChannelAPI {
     
     // 阻塞同步
-    fun <V> useConnection(use: Function<T, V>): V?
+    fun <T> useConnection(
+        use: Function<StatefulRedisConnection<String, String>, T>? = null,
+        useCluster: Function<StatefulRedisClusterConnection<String, String>, T>? = null
+    ): T?
 
     // 非阻塞异步
-    fun <V> useAsyncConnection(use: Function<T, V>): CompletableFuture<V?>
+    fun <T> useAsyncConnection(
+        use: Function<StatefulRedisConnection<String, String>, T>? = null,
+        useCluster: Function<StatefulRedisClusterConnection<String, String>, T>? = null
+    ): CompletableFuture<T?>
 }

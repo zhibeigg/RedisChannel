@@ -29,56 +29,6 @@ dependencies {
     implementation("com.gitee.redischannel:RedisChannel:{VERSION}:api")
 }
 ```
-### 直接调用自动判断 集群/单机
-
-```kotlin
-val api = RedisChannelPlugin.api
-val id = "player"
-
-// 读取数据
-val data = api.stringCommand()[id]
-
-// 更新过期时间
-api.keyCommand().expire(id, 3600)
-
-// 保存
-api.stringCommand().setex(id, 3600, data)
-
-// 异步使用
-api.proxyAsyncCommand().thenAccept { command ->
-    
-    // 读取数据
-    val data = command.stringCommand()[id]
-
-    // 更新过期时间
-    command.expire(id, 3600)
-
-    // 保存
-    command.setex(id, 3600, data)
-}
-
-// 反应式使用
-api.getProxyReactiveCommand().thenApply { command ->
-    
-    val result = command.set(id, "")
-        .then(command.get(id))
-        .doOnNext { value ->
-            println("获取的值: $value")
-        }
-
-    result.subscribe(
-        {
-            println("value $it")
-        },
-        {
-            println("error ${it.message}")
-        },
-        {
-            println("操作完成")
-        }
-    )
-}
-```
 
 ### 获取集群/单机的 Command
 

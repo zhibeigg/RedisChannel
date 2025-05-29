@@ -4,35 +4,13 @@ import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
 import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
-import com.gitee.redischannel.core.RedisManager.enabledSlaves
-import com.gitee.redischannel.core.RedisManager.masterAsyncReplicaPool
-import com.gitee.redischannel.core.RedisManager.masterReplicaPool
-import io.lettuce.core.api.StatefulConnection
 import io.lettuce.core.api.StatefulRedisConnection
-import io.lettuce.core.api.async.*
-import io.lettuce.core.api.reactive.BaseRedisReactiveCommands
-import io.lettuce.core.api.reactive.RedisAclReactiveCommands
-import io.lettuce.core.api.reactive.RedisFunctionReactiveCommands
-import io.lettuce.core.api.reactive.RedisGeoReactiveCommands
-import io.lettuce.core.api.reactive.RedisHLLReactiveCommands
-import io.lettuce.core.api.reactive.RedisHashReactiveCommands
-import io.lettuce.core.api.reactive.RedisJsonReactiveCommands
-import io.lettuce.core.api.reactive.RedisKeyReactiveCommands
-import io.lettuce.core.api.reactive.RedisListReactiveCommands
-import io.lettuce.core.api.reactive.RedisScriptingReactiveCommands
-import io.lettuce.core.api.reactive.RedisServerReactiveCommands
-import io.lettuce.core.api.reactive.RedisSetReactiveCommands
-import io.lettuce.core.api.reactive.RedisSortedSetReactiveCommands
-import io.lettuce.core.api.reactive.RedisStreamReactiveCommands
-import io.lettuce.core.api.reactive.RedisStringReactiveCommands
-import io.lettuce.core.api.sync.*
 import io.lettuce.core.cluster.ClusterClientOptions
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
 import io.lettuce.core.cluster.RedisClusterClient
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
 import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands
 import io.lettuce.core.cluster.api.reactive.RedisClusterReactiveCommands
-import io.lettuce.core.cluster.api.sync.RedisAdvancedClusterCommands
 import io.lettuce.core.cluster.api.sync.RedisClusterCommands
 import io.lettuce.core.cluster.pubsub.StatefulRedisClusterPubSubConnection
 import io.lettuce.core.cluster.pubsub.api.async.RedisClusterPubSubAsyncCommands
@@ -52,7 +30,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.function.Function
 import kotlin.time.toJavaDuration
 
-internal object ClusterRedisManager: RedisChannelAPI<StatefulRedisClusterConnection<String, String>>, RedisClusterCommandAPI, RedisClusterPubSubAPI {
+internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, RedisClusterPubSubAPI {
 
     lateinit var client: RedisClusterClient
 
@@ -180,7 +158,10 @@ internal object ClusterRedisManager: RedisChannelAPI<StatefulRedisClusterConnect
     }
 
     // sync
-    override fun <V> useConnection(use: Function<StatefulRedisClusterConnection<String, String>, V>): V? {
+    override fun <T> useConnection(
+        use: Function<StatefulRedisConnection<String, String>, T>?,
+        useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
+    ): T? {
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {
@@ -189,7 +170,7 @@ internal object ClusterRedisManager: RedisChannelAPI<StatefulRedisClusterConnect
         }
 
         return try {
-            use.apply(connection)
+            useCluster!!.apply(connection)
         } catch (e: Exception) {
             warning("Redis operation failed: ${e.message}")
             null
@@ -199,11 +180,14 @@ internal object ClusterRedisManager: RedisChannelAPI<StatefulRedisClusterConnect
     }
 
     // async
-    override fun <V> useAsyncConnection(use: Function<StatefulRedisClusterConnection<String, String>, V>): CompletableFuture<V?> {
+    override fun <T> useAsyncConnection(
+        use: Function<StatefulRedisConnection<String, String>, T>?,
+        useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
+    ): CompletableFuture<T?> {
         return try {
             asyncPool.acquire().thenApply { connection ->
                 try {
-                    use.apply(connection)
+                    useCluster!!.apply(connection)
                 } catch (e: Exception) {
                     warning("Redis operation failed: ${e.message}")
                     null
@@ -213,7 +197,7 @@ internal object ClusterRedisManager: RedisChannelAPI<StatefulRedisClusterConnect
             }
         } catch (e: Exception) {
             warning("Failed to borrow connection: ${e.message}")
-            return CompletableFuture.completedFuture(null)
+            CompletableFuture.completedFuture(null)
         }
     }
 }

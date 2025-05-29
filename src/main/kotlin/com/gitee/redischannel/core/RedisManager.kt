@@ -7,24 +7,10 @@ import com.gitee.redischannel.api.RedisPubSubAPI
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
 import io.lettuce.core.api.StatefulRedisConnection
-import io.lettuce.core.api.async.*
-import io.lettuce.core.api.reactive.BaseRedisReactiveCommands
-import io.lettuce.core.api.reactive.RedisAclReactiveCommands
-import io.lettuce.core.api.reactive.RedisFunctionReactiveCommands
-import io.lettuce.core.api.reactive.RedisGeoReactiveCommands
-import io.lettuce.core.api.reactive.RedisHLLReactiveCommands
-import io.lettuce.core.api.reactive.RedisHashReactiveCommands
-import io.lettuce.core.api.reactive.RedisJsonReactiveCommands
-import io.lettuce.core.api.reactive.RedisKeyReactiveCommands
-import io.lettuce.core.api.reactive.RedisListReactiveCommands
+import io.lettuce.core.api.async.RedisAsyncCommands
 import io.lettuce.core.api.reactive.RedisReactiveCommands
-import io.lettuce.core.api.reactive.RedisScriptingReactiveCommands
-import io.lettuce.core.api.reactive.RedisServerReactiveCommands
-import io.lettuce.core.api.reactive.RedisSetReactiveCommands
-import io.lettuce.core.api.reactive.RedisSortedSetReactiveCommands
-import io.lettuce.core.api.reactive.RedisStreamReactiveCommands
-import io.lettuce.core.api.reactive.RedisStringReactiveCommands
-import io.lettuce.core.api.sync.*
+import io.lettuce.core.api.sync.RedisCommands
+import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
 import io.lettuce.core.codec.StringCodec
 import io.lettuce.core.masterreplica.MasterReplica
 import io.lettuce.core.masterreplica.StatefulRedisMasterReplicaConnection
@@ -41,11 +27,9 @@ import taboolib.common.LifeCycle
 import taboolib.common.env.RuntimeDependencies
 import taboolib.common.env.RuntimeDependency
 import taboolib.common.platform.Awake
-import taboolib.common.platform.function.info
 import taboolib.common.platform.function.warning
 import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
-import java.util.function.Consumer
 import java.util.function.Function
 
 @RuntimeDependencies(
@@ -56,7 +40,7 @@ import java.util.function.Function
             "!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2",
             "!reactor", "!com.gitee.redischannel.reactor",
             "!org.reactivestreams", "!com.gitee.redischannel.reactivestreams"],
-        transitive = true
+        transitive = false
     ),
     RuntimeDependency(
         "!org.reactivestreams:reactive-streams:1.0.4",
@@ -74,7 +58,7 @@ import java.util.function.Function
         "!org.apache.commons:commons-pool2:2.12.1",
         test = "!com.gitee.redischannel.commons.pool2.BaseObject",
         relocate = ["!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2"],
-        transitive = true
+        transitive = false
     ),
     RuntimeDependency(
         value = "!io.netty:netty-common:4.1.118.Final",
@@ -119,7 +103,7 @@ import java.util.function.Function
         transitive = false
     )
 )
-internal object RedisManager: RedisChannelAPI<StatefulRedisConnection<String, String>>, RedisCommandAPI, RedisPubSubAPI {
+internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
 
     lateinit var client: RedisClient
 
@@ -222,21 +206,21 @@ internal object RedisManager: RedisChannelAPI<StatefulRedisConnection<String, St
     }
 
     fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
-        return useConnection {
-            block(it.sync())
-        }
+        return useConnection(
+            { block(it.sync()) }
+        )
     }
 
     fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): CompletableFuture<T?> {
-        return useAsyncConnection {
-            block(it.async())
-        }
+        return useAsyncConnection(
+            { block(it.async()) }
+        )
     }
 
     fun <T> useReactiveCommands(block: (RedisReactiveCommands<String, String>) -> T): CompletableFuture<T?> {
-        return useAsyncConnection {
-            block(it.reactive())
-        }
+        return useAsyncConnection(
+            { block(it.reactive()) }
+        )
     }
 
     override fun <T> usePubSubCommands(block: Function<RedisPubSubCommands<String, String>, T>): T? {
@@ -252,7 +236,10 @@ internal object RedisManager: RedisChannelAPI<StatefulRedisConnection<String, St
     }
 
     // sync
-    override fun <T> useConnection(use: Function<StatefulRedisConnection<String, String>, T>): T? {
+    override fun <T> useConnection(
+        use: Function<StatefulRedisConnection<String, String>, T>?,
+        useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
+    ): T? {
         return if (enabledSlaves) {
             val connection = try {
                 masterReplicaPool.borrowObject()
@@ -262,7 +249,7 @@ internal object RedisManager: RedisChannelAPI<StatefulRedisConnection<String, St
             }
 
             try {
-                use.apply(connection)
+                use!!.apply(connection)
             } catch (e: Exception) {
                 warning("Redis operation failed: ${e.message}")
                 null
@@ -278,7 +265,7 @@ internal object RedisManager: RedisChannelAPI<StatefulRedisConnection<String, St
             }
 
             try {
-                use.apply(connection)
+                use!!.apply(connection)
             } catch (e: Exception) {
                 warning("Redis operation failed: ${e.message}")
                 null
@@ -289,15 +276,18 @@ internal object RedisManager: RedisChannelAPI<StatefulRedisConnection<String, St
     }
 
     // async
-    override fun <T> useAsyncConnection(use: Function<StatefulRedisConnection<String, String>, T>): CompletableFuture<T?> {
+    override fun <T> useAsyncConnection(
+        use: Function<StatefulRedisConnection<String, String>, T>?,
+        useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
+    ): CompletableFuture<T?> {
         return if (enabledSlaves) {
             try {
                 masterAsyncReplicaPool.acquire().thenApply { obj ->
                     try {
-                        use.apply(obj)
+                        use!!.apply(obj)
                     } catch (e: Throwable) {
                         warning("Redis operation failed: ${e.message}")
-                        return@thenApply null
+                        null
                     } finally {
                         masterAsyncReplicaPool.release(obj)
                     }
@@ -310,10 +300,10 @@ internal object RedisManager: RedisChannelAPI<StatefulRedisConnection<String, St
             try {
                 asyncPool.acquire().thenApply { obj ->
                     try {
-                        use.apply(obj)
+                        use!!.apply(obj)
                     } catch (e: Throwable) {
                         warning("Redis operation failed: ${e.message}")
-                        return@thenApply null
+                        null
                     } finally {
                         asyncPool.release(obj)
                     }

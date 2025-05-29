@@ -44,12 +44,8 @@ dependencies {
     compileOnly("ink.ptms.core:v12004:12004:mapped")
     compileOnly("ink.ptms.core:v12004:12004:universal")
 
-    api("io.lettuce:lettuce-core:6.6.0.RELEASE") {
-        isTransitive = true
-    }
-    implementation("org.apache.commons:commons-pool2:2.12.1") {
-        isTransitive = true
-    }
+    api("io.lettuce:lettuce-core:6.6.0.RELEASE")
+    implementation("org.apache.commons:commons-pool2:2.12.1")
 
     compileOnly(kotlin("stdlib"))
     compileOnly(fileTree("libs"))

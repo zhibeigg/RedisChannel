@@ -29,7 +29,7 @@ object RedisChannelPlugin : Plugin() {
         this.type = type
     }
 
-    val api: RedisChannelAPI<*>
+    val api: RedisChannelAPI
         get() = when (type) {
             CLUSTER -> ClusterRedisManager
             SINGLE -> RedisManager
