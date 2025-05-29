@@ -4,29 +4,32 @@ import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
 import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
-import com.gitee.redischannel.api.proxy.ProxyAPI
-import io.lettuce.core.AbstractRedisAsyncCommands
-import io.lettuce.core.AbstractRedisReactiveCommands
-import io.lettuce.core.api.sync.BaseRedisCommands
-import io.lettuce.core.api.sync.RedisAclCommands
-import io.lettuce.core.api.sync.RedisFunctionCommands
-import io.lettuce.core.api.sync.RedisGeoCommands
-import io.lettuce.core.api.sync.RedisHLLCommands
-import io.lettuce.core.api.sync.RedisHashCommands
-import io.lettuce.core.api.sync.RedisJsonCommands
-import io.lettuce.core.api.sync.RedisKeyCommands
-import io.lettuce.core.api.sync.RedisListCommands
-import io.lettuce.core.api.sync.RedisScriptingCommands
-import io.lettuce.core.api.sync.RedisServerCommands
-import io.lettuce.core.api.sync.RedisSetCommands
-import io.lettuce.core.api.sync.RedisSortedSetCommands
-import io.lettuce.core.api.sync.RedisStreamCommands
-import io.lettuce.core.api.sync.RedisStringCommands
+import com.gitee.redischannel.core.RedisManager.enabledSlaves
+import com.gitee.redischannel.core.RedisManager.masterAsyncReplicaPool
+import com.gitee.redischannel.core.RedisManager.masterReplicaPool
+import io.lettuce.core.api.StatefulConnection
+import io.lettuce.core.api.StatefulRedisConnection
+import io.lettuce.core.api.async.*
+import io.lettuce.core.api.reactive.BaseRedisReactiveCommands
+import io.lettuce.core.api.reactive.RedisAclReactiveCommands
+import io.lettuce.core.api.reactive.RedisFunctionReactiveCommands
+import io.lettuce.core.api.reactive.RedisGeoReactiveCommands
+import io.lettuce.core.api.reactive.RedisHLLReactiveCommands
+import io.lettuce.core.api.reactive.RedisHashReactiveCommands
+import io.lettuce.core.api.reactive.RedisJsonReactiveCommands
+import io.lettuce.core.api.reactive.RedisKeyReactiveCommands
+import io.lettuce.core.api.reactive.RedisListReactiveCommands
+import io.lettuce.core.api.reactive.RedisScriptingReactiveCommands
+import io.lettuce.core.api.reactive.RedisServerReactiveCommands
+import io.lettuce.core.api.reactive.RedisSetReactiveCommands
+import io.lettuce.core.api.reactive.RedisSortedSetReactiveCommands
+import io.lettuce.core.api.reactive.RedisStreamReactiveCommands
+import io.lettuce.core.api.reactive.RedisStringReactiveCommands
+import io.lettuce.core.api.sync.*
 import io.lettuce.core.cluster.ClusterClientOptions
 import io.lettuce.core.cluster.ClusterTopologyRefreshOptions
 import io.lettuce.core.cluster.RedisClusterClient
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
-import io.lettuce.core.cluster.api.async.RedisAdvancedClusterAsyncCommands
 import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands
 import io.lettuce.core.cluster.api.reactive.RedisClusterReactiveCommands
 import io.lettuce.core.cluster.api.sync.RedisAdvancedClusterCommands
@@ -49,7 +52,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.function.Function
 import kotlin.time.toJavaDuration
 
-internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, RedisClusterPubSubAPI, ProxyAPI {
+internal object ClusterRedisManager: RedisChannelAPI<StatefulRedisClusterConnection<String, String>>, RedisClusterCommandAPI, RedisClusterPubSubAPI {
 
     lateinit var client: RedisClusterClient
 
@@ -59,7 +62,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
     lateinit var pubSubConnection: StatefulRedisClusterPubSubConnection<String, String>
 
     @Parallel(runOn = LifeCycle.ENABLE)
-    fun start() {
+    private fun start() {
         val redis = RedisChannelPlugin.redis
         if (!redis.enableCluster) return
         RedisChannelPlugin.init(RedisChannelPlugin.Type.CLUSTER)
@@ -102,15 +105,17 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
 
         client = RedisClusterClient.create(resource.build(), uris)
 
-        asyncPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
+        AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
             { client.connectAsync(StringCodec.UTF8).whenComplete { v, _ ->
                 if (redis.enableSlaves) {
                     val slaves = redis.slaves
                     v.readFrom = slaves.readFrom
                 }
             } },
-            redis.pool.asyncClusterPoolConfig()
-        )
+            redis.asyncPool.asyncClusterPoolConfig()
+        ).thenAccept {
+            asyncPool = it
+        }
         pool = ConnectionPoolSupport.createGenericObjectPool(
             { client.connect().apply {
                 if (redis.enableSlaves) {
@@ -145,56 +150,20 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
     }
 
     fun <T> useCommands(block: (RedisClusterCommands<String, String>) -> T): T? {
-        val connection = try {
-            pool.borrowObject()
-        } catch (e: Exception) {
-            warning("Failed to borrow connection: ${e.message}")
-            return null
-        }
-
-        return try {
-            block(connection.sync())
-        } catch (e: Exception) {
-            warning("Redis operation failed: ${e.message}")
-            null
-        } finally {
-            pool.returnObject(connection)
+        return useConnection {
+            block(it.sync())
         }
     }
 
     fun <T> useAsyncCommands(block: (RedisClusterAsyncCommands<String, String>) -> T): CompletableFuture<T?> {
-        return try {
-            asyncPool.acquire().thenApply { obj ->
-                try {
-                    block(obj.async())
-                } catch (e: Throwable) {
-                    warning("Redis operation failed: ${e.message}")
-                    return@thenApply null
-                } finally {
-                    asyncPool.release(obj)
-                }
-            }
-        } catch (e: Throwable) {
-            warning("Failed to acquire connection: ${e.message}")
-            CompletableFuture.completedFuture(null)
+        return useAsyncConnection {
+            block(it.async())
         }
     }
 
     fun <T> useReactiveCommands(block: (RedisClusterReactiveCommands<String, String>) -> T): CompletableFuture<T?> {
-        return try {
-            asyncPool.acquire().thenApply { obj ->
-                try {
-                    block(obj.reactive())
-                } catch (e: Throwable) {
-                    warning("Redis operation failed: ${e.message}")
-                    return@thenApply null
-                } finally {
-                    asyncPool.release(obj)
-                }
-            }
-        } catch (e: Throwable) {
-            warning("Failed to acquire connection: ${e.message}")
-            CompletableFuture.completedFuture(null)
+        return useAsyncConnection {
+            block(it.reactive())
         }
     }
 
@@ -210,128 +179,41 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         return block.apply(pubSubConnection.reactive())
     }
 
-    fun getProxyCommand(): RedisAdvancedClusterCommands<String, String> {
+    // sync
+    override fun <V> useConnection(use: Function<StatefulRedisClusterConnection<String, String>, V>): V? {
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {
             warning("Failed to borrow connection: ${e.message}")
-            null
+            return null
         }
 
-        val command = try {
-            connection?.sync()
+        return try {
+            use.apply(connection)
         } catch (e: Exception) {
             warning("Redis operation failed: ${e.message}")
             null
         } finally {
             pool.returnObject(connection)
         }
-        return command!!
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override fun getProxyAsyncCommand(): CompletableFuture<AbstractRedisAsyncCommands<String, String>> {
-        val command = try {
-            asyncPool.acquire().thenApply {
+    // async
+    override fun <V> useAsyncConnection(use: Function<StatefulRedisClusterConnection<String, String>, V>): CompletableFuture<V?> {
+        return try {
+            asyncPool.acquire().thenApply { connection ->
                 try {
-                    it.async()
+                    use.apply(connection)
                 } catch (e: Exception) {
                     warning("Redis operation failed: ${e.message}")
                     null
                 } finally {
-                    asyncPool.release(it)
+                    asyncPool.release(connection)
                 }
             }
         } catch (e: Exception) {
             warning("Failed to borrow connection: ${e.message}")
             return CompletableFuture.completedFuture(null)
         }
-
-        return command.thenApply {
-            it as AbstractRedisAsyncCommands<String, String>
-        }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun getProxyReactiveCommand(): CompletableFuture<AbstractRedisReactiveCommands<String, String>> {
-        val command = try {
-            asyncPool.acquire().thenApply {
-                try {
-                    it.reactive()
-                } catch (e: Exception) {
-                    warning("Redis operation failed: ${e.message}")
-                    null
-                } finally {
-                    asyncPool.release(it)
-                }
-            }
-        } catch (e: Exception) {
-            warning("Failed to borrow connection: ${e.message}")
-            return CompletableFuture.completedFuture(null)
-        }
-
-        return command.thenApply {
-            it as AbstractRedisReactiveCommands<String, String>
-        }
-    }
-
-    override fun baseCommand(): BaseRedisCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun aclCommand(): RedisAclCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun functionCommand(): RedisFunctionCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun geoCommand(): RedisGeoCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun hashCommand(): RedisHashCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun hllCommand(): RedisHLLCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun keyCommand(): RedisKeyCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun listCommand(): RedisListCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun scriptingCommand(): RedisScriptingCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun serverCommand(): RedisServerCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun setCommand(): RedisSetCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun sortedSetCommand(): RedisSortedSetCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun streamCommand(): RedisStreamCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun stringCommand(): RedisStringCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun jsonCommand(): RedisJsonCommands<String, String> {
-        return getProxyCommand()
     }
 }

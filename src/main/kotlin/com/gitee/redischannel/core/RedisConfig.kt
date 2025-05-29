@@ -68,14 +68,6 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
             configurationSection.getString("softMinEvictableIdleDuration")?.let { Duration.parse(it) }
         val numTestsPerEvictionRun = configurationSection.getInt("numTestsPerEvictionRun", 3)
 
-        fun asyncPoolConfig(): BoundedPoolConfig {
-            return BoundedPoolConfig.builder()
-                .maxTotal(this@Pool.maxTotal)
-                .maxIdle(this@Pool.maxIdle)
-                .minIdle(this@Pool.minIdle)
-                .build()
-        }
-
         fun poolConfig(): GenericObjectPoolConfig<StatefulRedisConnection<String, String>> {
             return GenericObjectPoolConfig<StatefulRedisConnection<String, String>>().apply {
                 lifo = this@Pool.lifo
@@ -97,14 +89,6 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
                 this@Pool.softMinEvictableIdleDuration?.let { softMinEvictableIdleDuration = it.toJavaDuration() }
                 numTestsPerEvictionRun = this@Pool.numTestsPerEvictionRun
             }
-        }
-
-        fun asyncClusterPoolConfig(): BoundedPoolConfig {
-            return BoundedPoolConfig.builder()
-                .maxTotal(this@Pool.maxTotal)
-                .maxIdle(this@Pool.maxIdle)
-                .minIdle(this@Pool.minIdle)
-                .build()
         }
 
         fun clusterPoolConfig(): GenericObjectPoolConfig<StatefulRedisClusterConnection<String, String>> {
@@ -130,14 +114,6 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
             }
         }
 
-        fun asyncSlavesPoolConfig(): BoundedPoolConfig {
-            return BoundedPoolConfig.builder()
-                .maxTotal(this@Pool.maxTotal)
-                .maxIdle(this@Pool.maxIdle)
-                .minIdle(this@Pool.minIdle)
-                .build()
-        }
-
         fun slavesPoolConfig(): GenericObjectPoolConfig<StatefulRedisMasterReplicaConnection<String, String>> {
             return GenericObjectPoolConfig<StatefulRedisMasterReplicaConnection<String, String>>().apply {
                 lifo = this@Pool.lifo
@@ -159,6 +135,39 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
                 this@Pool.softMinEvictableIdleDuration?.let { softMinEvictableIdleDuration = it.toJavaDuration() }
                 numTestsPerEvictionRun = this@Pool.numTestsPerEvictionRun
             }
+        }
+    }
+
+    val asyncPool = AsyncPool(configurationSection.getConfigurationSection("asyncPool")!!)
+
+    class AsyncPool(configurationSection: ConfigurationSection) {
+
+        val maxTotal = configurationSection.getInt("maxTotal", 8)
+        val maxIdle = configurationSection.getInt("maxIdle", 8)
+        val minIdle = configurationSection.getInt("minIdle", 0)
+
+        fun asyncPoolConfig(): BoundedPoolConfig {
+            return BoundedPoolConfig.builder()
+                .maxTotal(this@AsyncPool.maxTotal)
+                .maxIdle(this@AsyncPool.maxIdle)
+                .minIdle(this@AsyncPool.minIdle)
+                .build()
+        }
+
+        fun asyncClusterPoolConfig(): BoundedPoolConfig {
+            return BoundedPoolConfig.builder()
+                .maxTotal(this@AsyncPool.maxTotal)
+                .maxIdle(this@AsyncPool.maxIdle)
+                .minIdle(this@AsyncPool.minIdle)
+                .build()
+        }
+
+        fun asyncSlavesPoolConfig(): BoundedPoolConfig {
+            return BoundedPoolConfig.builder()
+                .maxTotal(this@AsyncPool.maxTotal)
+                .maxIdle(this@AsyncPool.maxIdle)
+                .minIdle(this@AsyncPool.minIdle)
+                .build()
         }
     }
 

@@ -4,30 +4,27 @@ import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
-import com.gitee.redischannel.api.proxy.ProxyAPI
-import io.lettuce.core.AbstractRedisAsyncCommands
-import io.lettuce.core.AbstractRedisReactiveCommands
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
 import io.lettuce.core.api.StatefulRedisConnection
-import io.lettuce.core.api.async.RedisAsyncCommands
+import io.lettuce.core.api.async.*
+import io.lettuce.core.api.reactive.BaseRedisReactiveCommands
+import io.lettuce.core.api.reactive.RedisAclReactiveCommands
+import io.lettuce.core.api.reactive.RedisFunctionReactiveCommands
+import io.lettuce.core.api.reactive.RedisGeoReactiveCommands
+import io.lettuce.core.api.reactive.RedisHLLReactiveCommands
+import io.lettuce.core.api.reactive.RedisHashReactiveCommands
+import io.lettuce.core.api.reactive.RedisJsonReactiveCommands
+import io.lettuce.core.api.reactive.RedisKeyReactiveCommands
+import io.lettuce.core.api.reactive.RedisListReactiveCommands
 import io.lettuce.core.api.reactive.RedisReactiveCommands
-import io.lettuce.core.api.sync.BaseRedisCommands
-import io.lettuce.core.api.sync.RedisAclCommands
-import io.lettuce.core.api.sync.RedisCommands
-import io.lettuce.core.api.sync.RedisFunctionCommands
-import io.lettuce.core.api.sync.RedisGeoCommands
-import io.lettuce.core.api.sync.RedisHLLCommands
-import io.lettuce.core.api.sync.RedisHashCommands
-import io.lettuce.core.api.sync.RedisJsonCommands
-import io.lettuce.core.api.sync.RedisKeyCommands
-import io.lettuce.core.api.sync.RedisListCommands
-import io.lettuce.core.api.sync.RedisScriptingCommands
-import io.lettuce.core.api.sync.RedisServerCommands
-import io.lettuce.core.api.sync.RedisSetCommands
-import io.lettuce.core.api.sync.RedisSortedSetCommands
-import io.lettuce.core.api.sync.RedisStreamCommands
-import io.lettuce.core.api.sync.RedisStringCommands
+import io.lettuce.core.api.reactive.RedisScriptingReactiveCommands
+import io.lettuce.core.api.reactive.RedisServerReactiveCommands
+import io.lettuce.core.api.reactive.RedisSetReactiveCommands
+import io.lettuce.core.api.reactive.RedisSortedSetReactiveCommands
+import io.lettuce.core.api.reactive.RedisStreamReactiveCommands
+import io.lettuce.core.api.reactive.RedisStringReactiveCommands
+import io.lettuce.core.api.sync.*
 import io.lettuce.core.codec.StringCodec
 import io.lettuce.core.masterreplica.MasterReplica
 import io.lettuce.core.masterreplica.StatefulRedisMasterReplicaConnection
@@ -44,9 +41,11 @@ import taboolib.common.LifeCycle
 import taboolib.common.env.RuntimeDependencies
 import taboolib.common.env.RuntimeDependency
 import taboolib.common.platform.Awake
+import taboolib.common.platform.function.info
 import taboolib.common.platform.function.warning
 import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
+import java.util.function.Consumer
 import java.util.function.Function
 
 @RuntimeDependencies(
@@ -120,7 +119,7 @@ import java.util.function.Function
         transitive = false
     )
 )
-internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, ProxyAPI {
+internal object RedisManager: RedisChannelAPI<StatefulRedisConnection<String, String>>, RedisCommandAPI, RedisPubSubAPI {
 
     lateinit var client: RedisClient
 
@@ -166,12 +165,14 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
             enabledSlaves = true
             val slaves = redis.slaves
 
-            masterAsyncReplicaPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
+            AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
                 { MasterReplica.connectAsync(client, StringCodec.UTF8, uri).whenComplete { v, _ ->
                     v.readFrom = slaves.readFrom
                 } },
-                redis.pool.asyncSlavesPoolConfig()
-            )
+                redis.asyncPool.asyncSlavesPoolConfig()
+            ).thenAccept {
+                masterAsyncReplicaPool = it
+            }
             masterReplicaPool = ConnectionPoolSupport.createGenericObjectPool(
                 { MasterReplica.connect(client, StringCodec.UTF8, uri).apply {
                     readFrom = slaves.readFrom
@@ -180,10 +181,12 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
             )
         } else {
 
-            asyncPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
+            AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
                 { client.connectAsync(StringCodec.UTF8, uri) },
-                redis.pool.asyncPoolConfig()
-            )
+                redis.asyncPool.asyncPoolConfig()
+            ).thenAccept {
+                asyncPool = it
+            }
             pool = ConnectionPoolSupport.createGenericObjectPool(
                 { client.connect() },
                 redis.pool.poolConfig()
@@ -219,110 +222,20 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
     }
 
     fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
-        if (enabledSlaves) {
-            val connection = try {
-                masterReplicaPool.borrowObject()
-            } catch (e: Exception) {
-                warning("Failed to borrow connection: ${e.message}")
-                return null
-            }
-
-            return try {
-                block(connection.sync())
-            } catch (e: Exception) {
-                warning("Redis operation failed: ${e.message}")
-                null
-            } finally {
-                masterReplicaPool.returnObject(connection)
-            }
-        } else {
-            val connection = try {
-                pool.borrowObject()
-            } catch (e: Exception) {
-                warning("Failed to borrow connection: ${e.message}")
-                return null
-            }
-
-            return try {
-                block(connection.sync())
-            } catch (e: Exception) {
-                warning("Redis operation failed: ${e.message}")
-                null
-            } finally {
-                pool.returnObject(connection)
-            }
+        return useConnection {
+            block(it.sync())
         }
     }
 
     fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): CompletableFuture<T?> {
-        return if (enabledSlaves) {
-            try {
-                masterAsyncReplicaPool.acquire().thenApply { obj ->
-                    try {
-                        block(obj.async())
-                    } catch (e: Throwable) {
-                        warning("Redis operation failed: ${e.message}")
-                        return@thenApply null
-                    } finally {
-                        masterAsyncReplicaPool.release(obj)
-                    }
-                }
-            } catch (e: Throwable) {
-                warning("Failed to acquire connection: ${e.message}")
-                CompletableFuture.completedFuture(null)
-            }
-        } else {
-            try {
-                asyncPool.acquire().thenApply { obj ->
-                    try {
-                        block(obj.async())
-                    } catch (e: Throwable) {
-                        warning("Redis operation failed: ${e.message}")
-                        return@thenApply null
-                    } finally {
-                        asyncPool.release(obj)
-                    }
-                }
-            } catch (e: Throwable) {
-                warning("Failed to acquire connection: ${e.message}")
-                CompletableFuture.completedFuture(null)
-            }
+        return useAsyncConnection {
+            block(it.async())
         }
     }
 
     fun <T> useReactiveCommands(block: (RedisReactiveCommands<String, String>) -> T): CompletableFuture<T?> {
-        return if (enabledSlaves) {
-            try {
-                masterAsyncReplicaPool.acquire().thenApply { obj ->
-                    try {
-                        block(obj.reactive())
-                    } catch (e: Throwable) {
-                        warning("Redis operation failed: ${e.message}")
-                        return@thenApply null
-                    } finally {
-                        masterAsyncReplicaPool.release(obj)
-                    }
-                }
-            } catch (e: Throwable) {
-                warning("Failed to acquire connection: ${e.message}")
-                CompletableFuture.completedFuture(null)
-            }
-        } else {
-            try {
-                asyncPool.acquire().thenApply { obj ->
-                    try {
-                        block(obj.reactive())
-                    } catch (e: Throwable) {
-                        warning("Redis operation failed: ${e.message}")
-                        return@thenApply null
-                    } finally {
-                        asyncPool.release(obj)
-                    }
-                }
-            } catch (e: Throwable) {
-                warning("Failed to acquire connection: ${e.message}")
-                CompletableFuture.completedFuture(null)
-            }
+        return useAsyncConnection {
+            block(it.reactive())
         }
     }
 
@@ -338,17 +251,18 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
         return block.apply(pubSubConnection.reactive())
     }
 
-    fun getProxyCommand(): RedisCommands<String, String> {
-        val command = if (enabledSlaves) {
+    // sync
+    override fun <T> useConnection(use: Function<StatefulRedisConnection<String, String>, T>): T? {
+        return if (enabledSlaves) {
             val connection = try {
                 masterReplicaPool.borrowObject()
             } catch (e: Exception) {
                 warning("Failed to borrow connection: ${e.message}")
-                null
+                return null
             }
 
             try {
-                connection?.sync()
+                use.apply(connection)
             } catch (e: Exception) {
                 warning("Redis operation failed: ${e.message}")
                 null
@@ -360,11 +274,11 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
                 pool.borrowObject()
             } catch (e: Exception) {
                 warning("Failed to borrow connection: ${e.message}")
-                null
+                return null
             }
 
             try {
-                connection?.sync()
+                use.apply(connection)
             } catch (e: Exception) {
                 warning("Redis operation failed: ${e.message}")
                 null
@@ -372,16 +286,15 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
                 pool.returnObject(connection)
             }
         }
-        return command!!
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override fun getProxyAsyncCommand(): CompletableFuture<AbstractRedisAsyncCommands<String, String>> {
-        val command = if (enabledSlaves) {
+    // async
+    override fun <T> useAsyncConnection(use: Function<StatefulRedisConnection<String, String>, T>): CompletableFuture<T?> {
+        return if (enabledSlaves) {
             try {
                 masterAsyncReplicaPool.acquire().thenApply { obj ->
                     try {
-                        obj.async()
+                        use.apply(obj)
                     } catch (e: Throwable) {
                         warning("Redis operation failed: ${e.message}")
                         return@thenApply null
@@ -397,7 +310,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
             try {
                 asyncPool.acquire().thenApply { obj ->
                     try {
-                        obj.async()
+                        use.apply(obj)
                     } catch (e: Throwable) {
                         warning("Redis operation failed: ${e.message}")
                         return@thenApply null
@@ -410,110 +323,5 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI, 
                 return CompletableFuture.completedFuture(null)
             }
         }
-
-        return command.thenApply {
-            it as AbstractRedisAsyncCommands<String, String>
-        }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun getProxyReactiveCommand(): CompletableFuture<AbstractRedisReactiveCommands<String, String>> {
-        val command = if (enabledSlaves) {
-            try {
-                masterAsyncReplicaPool.acquire().thenApply { obj ->
-                    try {
-                        obj.reactive()
-                    } catch (e: Throwable) {
-                        warning("Redis operation failed: ${e.message}")
-                        return@thenApply null
-                    } finally {
-                        masterAsyncReplicaPool.release(obj)
-                    }
-                }
-            } catch (e: Throwable) {
-                warning("Failed to acquire connection: ${e.message}")
-                return CompletableFuture.completedFuture(null)
-            }
-        } else {
-            try {
-                asyncPool.acquire().thenApply { obj ->
-                    try {
-                        obj.reactive()
-                    } catch (e: Throwable) {
-                        warning("Redis operation failed: ${e.message}")
-                        return@thenApply null
-                    } finally {
-                        asyncPool.release(obj)
-                    }
-                }
-            } catch (e: Throwable) {
-                warning("Failed to acquire connection: ${e.message}")
-                return CompletableFuture.completedFuture(null)
-            }
-        }
-
-        return command.thenApply {
-            it as AbstractRedisReactiveCommands<String, String>
-        }
-    }
-
-    override fun baseCommand(): BaseRedisCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun aclCommand(): RedisAclCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun functionCommand(): RedisFunctionCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun geoCommand(): RedisGeoCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun hashCommand(): RedisHashCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun hllCommand(): RedisHLLCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun keyCommand(): RedisKeyCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun listCommand(): RedisListCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun scriptingCommand(): RedisScriptingCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun serverCommand(): RedisServerCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun setCommand(): RedisSetCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun sortedSetCommand(): RedisSortedSetCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun streamCommand(): RedisStreamCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun stringCommand(): RedisStringCommands<String, String> {
-        return getProxyCommand()
-    }
-
-    override fun jsonCommand(): RedisJsonCommands<String, String> {
-        return getProxyCommand()
     }
 }
