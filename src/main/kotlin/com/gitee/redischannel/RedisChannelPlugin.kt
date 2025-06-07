@@ -3,6 +3,10 @@ package com.gitee.redischannel
 import com.gitee.redischannel.RedisChannelPlugin.Type.CLUSTER
 import com.gitee.redischannel.RedisChannelPlugin.Type.SINGLE
 import com.gitee.redischannel.api.RedisChannelAPI
+import com.gitee.redischannel.api.RedisCommandAPI
+import com.gitee.redischannel.api.RedisPubSubAPI
+import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
+import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
 import com.gitee.redischannel.core.ClusterRedisManager
 import com.gitee.redischannel.core.RedisConfig
 import com.gitee.redischannel.core.RedisManager
@@ -34,6 +38,37 @@ object RedisChannelPlugin : Plugin() {
             CLUSTER -> ClusterRedisManager
             SINGLE -> RedisManager
         }
+
+    /**
+     * 获取集群命令API
+     * @throws ClassCastException 当你使用的不是集群模式时
+     * */
+    fun clusterCommandAPI(): RedisClusterCommandAPI {
+        return api as RedisClusterCommandAPI
+    }
+
+    /**
+     * 获取命令API
+     * @throws ClassCastException 当你使用的是集群模式时
+     * */
+    fun commandAPI(): RedisCommandAPI {
+        return api as RedisCommandAPI
+    }
+
+    /**
+     * 获取集群发布/订阅API
+     * @throws ClassCastException 当你使用的不是集群模式时
+     * */
+    fun clusterPubSubAPI(): RedisClusterPubSubAPI {
+        return api as RedisClusterPubSubAPI
+    }
+
+    /**
+     * 获取发布/订阅API 集群的也可以用
+     * */
+    fun pubSubAPI(): RedisPubSubAPI {
+        return api as RedisPubSubAPI
+    }
 
     override fun onEnable() {
         println()
