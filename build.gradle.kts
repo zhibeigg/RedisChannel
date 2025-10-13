@@ -1,5 +1,6 @@
 import io.izzel.taboolib.gradle.Basic
 import io.izzel.taboolib.gradle.Bukkit
+import io.izzel.taboolib.gradle.CommandHelper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 val publishUsername: String by project
@@ -17,7 +18,8 @@ taboolib {
     env {
         install(Basic)
         install(Bukkit)
-        repoTabooLib = "https://www.mcwar.cn/nexus/repository/maven-public/"
+        install(CommandHelper)
+        // repoTabooLib = "https://www.mcwar.cn/nexus/repository/maven-public/"
     }
     description {
         name = "RedisChannel"
@@ -25,7 +27,7 @@ taboolib {
             name("zhibei")
         }
     }
-    version { taboolib = "6.2.3-test9" }
+    version { taboolib = "6.2.3-b217935" }
     relocate("org.reactivestreams", "com.gitee.redischannel.reactivestreams")
     relocate("reactor", "com.gitee.redischannel.reactor")
     relocate("org.apache.commons.pool2", "com.gitee.redischannel.commons.pool2")

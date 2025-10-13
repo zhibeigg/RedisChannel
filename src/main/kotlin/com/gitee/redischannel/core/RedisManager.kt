@@ -114,13 +114,19 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
     lateinit var masterAsyncReplicaPool: BoundedAsyncPool<StatefulRedisMasterReplicaConnection<String, String>>
 
     lateinit var pubSubConnection: StatefulRedisPubSubConnection<String, String>
+    lateinit var resources: DefaultClientResources
 
     var enabledSlaves = false
 
     @Parallel(runOn = LifeCycle.ENABLE)
-    private fun start() {
+    internal fun start(): CompletableFuture<Void> {
+        val completableFuture = CompletableFuture<Void>()
         val redis = RedisChannelPlugin.redis
-        if (redis.enableCluster) return
+
+        if (redis.enableCluster) {
+            completableFuture.complete(null)
+            return completableFuture
+        }
         RedisChannelPlugin.init(RedisChannelPlugin.Type.SINGLE)
 
         val resource = DefaultClientResources.builder()
@@ -141,14 +147,25 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
         }
         val uri = redis.redisURIBuilder().build()
 
-        client = RedisClient.create(resource.build(), uri).apply {
+        resources = resource.build()
+        client = RedisClient.create(resources, uri).apply {
             options = clientOptions.build()
         }
+        // 连接 pub/sub 通道
+        pubSubConnection = client.connectPubSub()
 
         if (redis.enableSlaves) {
             enabledSlaves = true
             val slaves = redis.slaves
 
+            // 连接同步
+            masterReplicaPool = ConnectionPoolSupport.createGenericObjectPool(
+                { MasterReplica.connect(client, StringCodec.UTF8, uri).apply {
+                    readFrom = slaves.readFrom
+                } },
+                redis.pool.slavesPoolConfig()
+            )
+            // 连接异步
             AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
                 { MasterReplica.connectAsync(client, StringCodec.UTF8, uri).whenComplete { v, _ ->
                     v.readFrom = slaves.readFrom
@@ -156,31 +173,28 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                 redis.asyncPool.asyncSlavesPoolConfig()
             ).thenAccept {
                 masterAsyncReplicaPool = it
+                completableFuture.complete(null)
             }
-            masterReplicaPool = ConnectionPoolSupport.createGenericObjectPool(
-                { MasterReplica.connect(client, StringCodec.UTF8, uri).apply {
-                    readFrom = slaves.readFrom
-                } },
-                redis.pool.slavesPoolConfig()
-            )
         } else {
-
+            // 连接同步
+            pool = ConnectionPoolSupport.createGenericObjectPool(
+                { client.connect() },
+                redis.pool.poolConfig()
+            )
+            // 连接异步
             AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
                 { client.connectAsync(StringCodec.UTF8, uri) },
                 redis.asyncPool.asyncPoolConfig()
             ).thenAccept {
                 asyncPool = it
+                completableFuture.complete(null)
             }
-            pool = ConnectionPoolSupport.createGenericObjectPool(
-                { client.connect() },
-                redis.pool.poolConfig()
-            )
         }
-        pubSubConnection = client.connectPubSub()
+        return completableFuture
     }
 
     @Awake(LifeCycle.DISABLE)
-    private fun stop() {
+    internal fun stop() {
         if (RedisChannelPlugin.type == RedisChannelPlugin.Type.SINGLE) {
             if (enabledSlaves) {
                 masterAsyncReplicaPool.close()
@@ -190,6 +204,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                 pool.close()
             }
             client.shutdown()
+            resources.shutdown()
         }
     }
 

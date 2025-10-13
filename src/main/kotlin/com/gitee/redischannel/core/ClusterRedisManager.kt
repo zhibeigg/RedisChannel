@@ -38,11 +38,16 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
     lateinit var asyncPool: BoundedAsyncPool<StatefulRedisClusterConnection<String, String>>
 
     lateinit var pubSubConnection: StatefulRedisClusterPubSubConnection<String, String>
+    lateinit var resources: DefaultClientResources
 
     @Parallel(runOn = LifeCycle.ENABLE)
-    private fun start() {
+    internal fun start(): CompletableFuture<Void> {
+        val completableFuture = CompletableFuture<Void>()
         val redis = RedisChannelPlugin.redis
-        if (!redis.enableCluster) return
+        if (!redis.enableCluster) {
+            completableFuture.complete(null)
+            return completableFuture
+        }
         RedisChannelPlugin.init(RedisChannelPlugin.Type.CLUSTER)
 
         val resource = DefaultClientResources.builder()
@@ -81,8 +86,22 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
             .validateClusterNodeMembership(cluster.validateClusterNodeMembership)
             .pingBeforeActivateConnection(redis.pingBeforeActivateConnection)
 
-        client = RedisClusterClient.create(resource.build(), uris)
+        resources = resource.build()
+        client = RedisClusterClient.create(resources, uris)
 
+        // 连接 pub/sub 通道
+        pubSubConnection = client.connectPubSub()
+        // 连接同步
+        pool = ConnectionPoolSupport.createGenericObjectPool(
+            { client.connect().apply {
+                if (redis.enableSlaves) {
+                    val slaves = redis.slaves
+                    readFrom = slaves.readFrom
+                }
+            } },
+            redis.pool.clusterPoolConfig()
+        )
+        // 连接异步
         AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
             { client.connectAsync(StringCodec.UTF8).whenComplete { v, _ ->
                 if (redis.enableSlaves) {
@@ -93,25 +112,18 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
             redis.asyncPool.asyncClusterPoolConfig()
         ).thenAccept {
             asyncPool = it
+            completableFuture.complete(null)
         }
-        pool = ConnectionPoolSupport.createGenericObjectPool(
-            { client.connect().apply {
-                if (redis.enableSlaves) {
-                    val slaves = redis.slaves
-                    readFrom = slaves.readFrom
-                }
-            } },
-            redis.pool.clusterPoolConfig()
-        )
-        pubSubConnection = client.connectPubSub()
+        return completableFuture
     }
 
     @Awake(LifeCycle.DISABLE)
-    private fun stop() {
+    internal fun stop() {
         if (RedisChannelPlugin.type == RedisChannelPlugin.Type.CLUSTER) {
             asyncPool.close()
             pool.close()
             client.shutdown()
+            resources.shutdown()
         }
     }
 
