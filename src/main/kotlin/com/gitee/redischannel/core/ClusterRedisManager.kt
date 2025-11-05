@@ -139,19 +139,19 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         return useReactiveCommands { block.apply(it) }
     }
 
-    fun <T> useCommands(block: (RedisClusterCommands<String, String>) -> T): T? {
+    inline fun <T> useCommands(crossinline block: (RedisClusterCommands<String, String>) -> T): T? {
         return useConnection {
             block(it.sync())
         }
     }
 
-    fun <T> useAsyncCommands(block: (RedisClusterAsyncCommands<String, String>) -> T): CompletableFuture<T?> {
+    inline fun <T> useAsyncCommands(crossinline block: (RedisClusterAsyncCommands<String, String>) -> T): CompletableFuture<T?> {
         return useAsyncConnection {
             block(it.async())
         }
     }
 
-    fun <T> useReactiveCommands(block: (RedisClusterReactiveCommands<String, String>) -> T): CompletableFuture<T?> {
+    inline fun <T> useReactiveCommands(crossinline block: (RedisClusterReactiveCommands<String, String>) -> T): CompletableFuture<T?> {
         return useAsyncConnection {
             block(it.reactive())
         }

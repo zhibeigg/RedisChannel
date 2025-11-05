@@ -5,7 +5,7 @@ import taboolib.common.platform.function.releaseResourceFile
 import java.io.File
 import kotlin.collections.forEach
 
-internal fun <T> files(path: String, vararg defs: String, callback: (File) -> T): List<T> {
+internal inline fun <T> files(path: String, vararg defs: String, callback: (File) -> T): List<T> {
     val file = File(getDataFolder(), path)
     if (!file.exists()) {
         defs.forEach {

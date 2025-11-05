@@ -220,19 +220,19 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
         return useReactiveCommands { block.apply(it) }
     }
 
-    fun <T> useCommands(block: (RedisCommands<String, String>) -> T): T? {
+    inline fun <T> useCommands(crossinline block: (RedisCommands<String, String>) -> T): T? {
         return useConnection(
             { block(it.sync()) }
         )
     }
 
-    fun <T> useAsyncCommands(block: (RedisAsyncCommands<String, String>) -> T): CompletableFuture<T?> {
+    inline fun <T> useAsyncCommands(crossinline block: (RedisAsyncCommands<String, String>) -> T): CompletableFuture<T?> {
         return useAsyncConnection(
             { block(it.async()) }
         )
     }
 
-    fun <T> useReactiveCommands(block: (RedisReactiveCommands<String, String>) -> T): CompletableFuture<T?> {
+    inline fun <T> useReactiveCommands(crossinline block: (RedisReactiveCommands<String, String>) -> T): CompletableFuture<T?> {
         return useAsyncConnection(
             { block(it.reactive()) }
         )
