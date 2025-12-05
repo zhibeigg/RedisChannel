@@ -178,7 +178,7 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
 
     class Slaves(configurationSection: ConfigurationSection) {
 
-        val readFrom = ReadFrom.valueOf((configurationSection.getString("readFrom") ?: error("readFrom must be set")))
+        val readFrom: ReadFrom = ReadFrom.valueOf((configurationSection.getString("readFrom") ?: error("readFrom must be set")))
     }
 
     // cluster

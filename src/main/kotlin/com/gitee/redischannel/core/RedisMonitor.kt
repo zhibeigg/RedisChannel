@@ -207,7 +207,7 @@ object RedisMonitor {
                         sentinelMasterId = if (isSentinel) redis.sentinel.masterId else null,
                         sentinelNodes = if (isSentinel) redis.sentinel.nodes.map { "${it.host}:${it.port}" } else null,
                         isSlaves = isSlaves,
-                        readFrom = if (isSlaves) redis.slaves.readFrom.toString() else null,
+                        readFrom = if (isSlaves) redis.slaves.readFrom::class.simpleName else null,
                         isCluster = false,
                         clusterNodeCount = null
                     )
@@ -220,7 +220,7 @@ object RedisMonitor {
                         sentinelMasterId = null,
                         sentinelNodes = null,
                         isSlaves = isSlaves,
-                        readFrom = if (isSlaves) redis.slaves.readFrom.toString() else null,
+                        readFrom = if (isSlaves) redis.slaves.readFrom::class.simpleName else null,
                         isCluster = true,
                         clusterNodeCount = redis.cluster.nodes.size
                     )
