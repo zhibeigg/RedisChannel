@@ -290,13 +290,18 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                 masterReplicaPool.borrowObject()
             } catch (e: Exception) {
                 warning("Failed to borrow connection: ${e.message}")
+                RedisMonitor.recordCommand(false)
                 return null
             }
 
+            val startTime = System.currentTimeMillis()
             try {
-                use!!.apply(connection)
+                val result = use!!.apply(connection)
+                RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+                result
             } catch (e: Exception) {
                 warning("Redis operation failed: ${e.message}")
+                RedisMonitor.recordCommand(false)
                 null
             } finally {
                 masterReplicaPool.returnObject(connection)
@@ -306,13 +311,18 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                 pool.borrowObject()
             } catch (e: Exception) {
                 warning("Failed to borrow connection: ${e.message}")
+                RedisMonitor.recordCommand(false)
                 return null
             }
 
+            val startTime = System.currentTimeMillis()
             try {
-                use!!.apply(connection)
+                val result = use!!.apply(connection)
+                RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+                result
             } catch (e: Exception) {
                 warning("Redis operation failed: ${e.message}")
+                RedisMonitor.recordCommand(false)
                 null
             } finally {
                 pool.returnObject(connection)
@@ -327,34 +337,52 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
     ): CompletableFuture<T?> {
         return if (enabledSlaves) {
             try {
+                val startTime = System.currentTimeMillis()
                 masterAsyncReplicaPool.acquire().thenApply { obj ->
                     try {
-                        use!!.apply(obj)
+                        val result = use!!.apply(obj)
+                        RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+                        result
                     } catch (e: Throwable) {
                         warning("Redis operation failed: ${e.message}")
+                        RedisMonitor.recordCommand(false)
                         null
                     } finally {
                         masterAsyncReplicaPool.release(obj)
                     }
+                }.exceptionally { e ->
+                    warning("Failed to acquire connection: ${e.message}")
+                    RedisMonitor.recordCommand(false)
+                    null
                 }
             } catch (e: Throwable) {
                 warning("Failed to acquire connection: ${e.message}")
+                RedisMonitor.recordCommand(false)
                 return CompletableFuture.completedFuture(null)
             }
         } else {
             try {
+                val startTime = System.currentTimeMillis()
                 asyncPool.acquire().thenApply { obj ->
                     try {
-                        use!!.apply(obj)
+                        val result = use!!.apply(obj)
+                        RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+                        result
                     } catch (e: Throwable) {
                         warning("Redis operation failed: ${e.message}")
+                        RedisMonitor.recordCommand(false)
                         null
                     } finally {
                         asyncPool.release(obj)
                     }
+                }.exceptionally { e ->
+                    warning("Failed to acquire connection: ${e.message}")
+                    RedisMonitor.recordCommand(false)
+                    null
                 }
             } catch (e: Throwable) {
                 warning("Failed to acquire connection: ${e.message}")
+                RedisMonitor.recordCommand(false)
                 return CompletableFuture.completedFuture(null)
             }
         }

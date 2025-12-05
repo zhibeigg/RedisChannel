@@ -204,13 +204,18 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
             pool.borrowObject()
         } catch (e: Exception) {
             warning("Failed to borrow connection: ${e.message}")
+            RedisMonitor.recordCommand(false)
             return null
         }
 
+        val startTime = System.currentTimeMillis()
         return try {
-            useCluster!!.apply(connection)
+            val result = useCluster!!.apply(connection)
+            RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+            result
         } catch (e: Exception) {
             warning("Redis operation failed: ${e.message}")
+            RedisMonitor.recordCommand(false)
             null
         } finally {
             pool.returnObject(connection)
@@ -223,18 +228,27 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
     ): CompletableFuture<T?> {
         return try {
+            val startTime = System.currentTimeMillis()
             asyncPool.acquire().thenApply { connection ->
                 try {
-                    useCluster!!.apply(connection)
+                    val result = useCluster!!.apply(connection)
+                    RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+                    result
                 } catch (e: Exception) {
                     warning("Redis operation failed: ${e.message}")
+                    RedisMonitor.recordCommand(false)
                     null
                 } finally {
                     asyncPool.release(connection)
                 }
+            }.exceptionally { e ->
+                warning("Failed to borrow connection: ${e.message}")
+                RedisMonitor.recordCommand(false)
+                null
             }
         } catch (e: Exception) {
             warning("Failed to borrow connection: ${e.message}")
+            RedisMonitor.recordCommand(false)
             CompletableFuture.completedFuture(null)
         }
     }
