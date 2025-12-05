@@ -20,10 +20,11 @@ object RedisChannelPlugin : Plugin() {
     @Config(migrate = true)
     lateinit var config: Configuration
 
-    val redis by lazy { RedisConfig(config.getConfigurationSection("redis")!!) }
-
-    lateinit var type: Type
+    lateinit var redis: RedisConfig
         private set
+
+    var type: Type? = null
+        internal set
 
     enum class Type {
         CLUSTER, SINGLE;
@@ -33,10 +34,20 @@ object RedisChannelPlugin : Plugin() {
         this.type = type
     }
 
+    internal fun reloadConfig() {
+        config.reload()
+        redis = RedisConfig(config.getConfigurationSection("redis")!!)
+    }
+
+    override fun onLoad() {
+        redis = RedisConfig(config.getConfigurationSection("redis")!!)
+    }
+
     val api: RedisChannelAPI
         get() = when (type) {
             CLUSTER -> ClusterRedisManager
             SINGLE -> RedisManager
+            null -> error("Redis 连接未初始化")
         }
 
     /**

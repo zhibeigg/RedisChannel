@@ -42,31 +42,31 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
                 .build()
         }
 
-    val pool = Pool(configurationSection.getConfigurationSection("pool")!!)
+    val pool = Pool(configurationSection.getConfigurationSection("pool"))
 
-    class Pool(configurationSection: ConfigurationSection) {
+    class Pool(configurationSection: ConfigurationSection?) {
 
-        val lifo = configurationSection.getBoolean("lifo", true)
-        val fairness = configurationSection.getBoolean("fairness", false)
+        val lifo = configurationSection?.getBoolean("lifo", true) ?: true
+        val fairness = configurationSection?.getBoolean("fairness", false) ?: false
 
-        val maxTotal = configurationSection.getInt("maxTotal", 8)
-        val maxIdle = configurationSection.getInt("maxIdle", 8)
-        val minIdle = configurationSection.getInt("minIdle", 0)
+        val maxTotal = configurationSection?.getInt("maxTotal", 8) ?: 8
+        val maxIdle = configurationSection?.getInt("maxIdle", 8) ?: 8
+        val minIdle = configurationSection?.getInt("minIdle", 0) ?: 0
 
-        val testOnCreate = configurationSection.getBoolean("testOnCreate", false)
-        val testOnBorrow = configurationSection.getBoolean("testOnCreate", false)
-        val testOnReturn = configurationSection.getBoolean("testOnCreate", false)
-        val testWhileIdle = configurationSection.getBoolean("testOnCreate", false)
+        val testOnCreate = configurationSection?.getBoolean("testOnCreate", false) ?: false
+        val testOnBorrow = configurationSection?.getBoolean("testOnBorrow", false) ?: false
+        val testOnReturn = configurationSection?.getBoolean("testOnReturn", false) ?: false
+        val testWhileIdle = configurationSection?.getBoolean("testWhileIdle", false) ?: false
 
-        val maxWaitDuration = configurationSection.getString("maxWaitDuration")?.let { Duration.parse(it) }
-        val blockWhenExhausted = configurationSection.getBoolean("blockWhenExhausted", true)
+        val maxWaitDuration = configurationSection?.getString("maxWaitDuration")?.let { Duration.parse(it) }
+        val blockWhenExhausted = configurationSection?.getBoolean("blockWhenExhausted", true) ?: true
         val timeBetweenEvictionRuns =
-            configurationSection.getString("timeBetweenEvictionRuns")?.let { Duration.parse(it) }
+            configurationSection?.getString("timeBetweenEvictionRuns")?.let { Duration.parse(it) }
         val minEvictableIdleDuration =
-            configurationSection.getString("minEvictableIdleDuration")?.let { Duration.parse(it) }
+            configurationSection?.getString("minEvictableIdleDuration")?.let { Duration.parse(it) }
         val softMinEvictableIdleDuration =
-            configurationSection.getString("softMinEvictableIdleDuration")?.let { Duration.parse(it) }
-        val numTestsPerEvictionRun = configurationSection.getInt("numTestsPerEvictionRun", 3)
+            configurationSection?.getString("softMinEvictableIdleDuration")?.let { Duration.parse(it) }
+        val numTestsPerEvictionRun = configurationSection?.getInt("numTestsPerEvictionRun", 3) ?: 3
 
         fun poolConfig(): GenericObjectPoolConfig<StatefulRedisConnection<String, String>> {
             return GenericObjectPoolConfig<StatefulRedisConnection<String, String>>().apply {
@@ -138,35 +138,19 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
         }
     }
 
-    val asyncPool = AsyncPool(configurationSection.getConfigurationSection("asyncPool")!!)
+    val asyncPool = AsyncPool(configurationSection.getConfigurationSection("asyncPool"))
 
-    class AsyncPool(configurationSection: ConfigurationSection) {
+    class AsyncPool(configurationSection: ConfigurationSection?) {
 
-        val maxTotal = configurationSection.getInt("maxTotal", 8)
-        val maxIdle = configurationSection.getInt("maxIdle", 8)
-        val minIdle = configurationSection.getInt("minIdle", 0)
+        val maxTotal = configurationSection?.getInt("maxTotal", 8) ?: 8
+        val maxIdle = configurationSection?.getInt("maxIdle", 8) ?: 8
+        val minIdle = configurationSection?.getInt("minIdle", 0) ?: 0
 
-        fun asyncPoolConfig(): BoundedPoolConfig {
+        fun poolConfig(): BoundedPoolConfig {
             return BoundedPoolConfig.builder()
-                .maxTotal(this@AsyncPool.maxTotal)
-                .maxIdle(this@AsyncPool.maxIdle)
-                .minIdle(this@AsyncPool.minIdle)
-                .build()
-        }
-
-        fun asyncClusterPoolConfig(): BoundedPoolConfig {
-            return BoundedPoolConfig.builder()
-                .maxTotal(this@AsyncPool.maxTotal)
-                .maxIdle(this@AsyncPool.maxIdle)
-                .minIdle(this@AsyncPool.minIdle)
-                .build()
-        }
-
-        fun asyncSlavesPoolConfig(): BoundedPoolConfig {
-            return BoundedPoolConfig.builder()
-                .maxTotal(this@AsyncPool.maxTotal)
-                .maxIdle(this@AsyncPool.maxIdle)
-                .minIdle(this@AsyncPool.minIdle)
+                .maxTotal(maxTotal)
+                .maxIdle(maxIdle)
+                .minIdle(minIdle)
                 .build()
         }
     }

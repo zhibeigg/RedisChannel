@@ -23,11 +23,14 @@ import io.lettuce.core.support.AsyncConnectionPoolSupport
 import io.lettuce.core.support.BoundedAsyncPool
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
+import org.bukkit.Bukkit
 import taboolib.common.LifeCycle
 import taboolib.common.env.RuntimeDependencies
 import taboolib.common.env.RuntimeDependency
 import taboolib.common.platform.Awake
+import taboolib.common.platform.function.severe
 import taboolib.common.platform.function.warning
+import taboolib.platform.BukkitPlugin
 import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
 import java.util.function.Function
@@ -129,83 +132,110 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
         }
         RedisChannelPlugin.init(RedisChannelPlugin.Type.SINGLE)
 
-        val resource = DefaultClientResources.builder()
+        try {
+            val resource = DefaultClientResources.builder()
 
-        if (redis.ioThreadPoolSize != 0) {
-            resource.ioThreadPoolSize(4)
-        }
-        if (redis.computationThreadPoolSize != 0) {
-            resource.computationThreadPoolSize(4)
-        }
-
-        val clientOptions = ClientOptions.builder()
-            .autoReconnect(redis.autoReconnect)
-            .pingBeforeActivateConnection(redis.pingBeforeActivateConnection)
-
-        if (redis.ssl) {
-            clientOptions.sslOptions(redis.sslOptions)
-        }
-        val uri = redis.redisURIBuilder().build()
-
-        resources = resource.build()
-        client = RedisClient.create(resources, uri).apply {
-            options = clientOptions.build()
-        }
-        // 连接 pub/sub 通道
-        pubSubConnection = client.connectPubSub()
-
-        if (redis.enableSlaves) {
-            enabledSlaves = true
-            val slaves = redis.slaves
-
-            // 连接同步
-            masterReplicaPool = ConnectionPoolSupport.createGenericObjectPool(
-                { MasterReplica.connect(client, StringCodec.UTF8, uri).apply {
-                    readFrom = slaves.readFrom
-                } },
-                redis.pool.slavesPoolConfig()
-            )
-            // 连接异步
-            AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
-                { MasterReplica.connectAsync(client, StringCodec.UTF8, uri).whenComplete { v, _ ->
-                    v.readFrom = slaves.readFrom
-                } },
-                redis.asyncPool.asyncSlavesPoolConfig()
-            ).thenAccept {
-                masterAsyncReplicaPool = it
-                completableFuture.complete(null)
+            if (redis.ioThreadPoolSize != 0) {
+                resource.ioThreadPoolSize(redis.ioThreadPoolSize)
             }
-        } else {
-            // 连接同步
-            pool = ConnectionPoolSupport.createGenericObjectPool(
-                { client.connect() },
-                redis.pool.poolConfig()
-            )
-            // 连接异步
-            AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
-                { client.connectAsync(StringCodec.UTF8, uri) },
-                redis.asyncPool.asyncPoolConfig()
-            ).thenAccept {
-                asyncPool = it
-                completableFuture.complete(null)
+            if (redis.computationThreadPoolSize != 0) {
+                resource.computationThreadPoolSize(redis.computationThreadPoolSize)
             }
+
+            val clientOptions = ClientOptions.builder()
+                .autoReconnect(redis.autoReconnect)
+                .pingBeforeActivateConnection(redis.pingBeforeActivateConnection)
+
+            if (redis.ssl) {
+                clientOptions.sslOptions(redis.sslOptions)
+            }
+            val uri = redis.redisURIBuilder().build()
+
+            resources = resource.build()
+            client = RedisClient.create(resources, uri).apply {
+                options = clientOptions.build()
+            }
+            // 连接 pub/sub 通道
+            pubSubConnection = client.connectPubSub()
+
+            if (redis.enableSlaves) {
+                enabledSlaves = true
+                val slaves = redis.slaves
+
+                // 连接同步
+                masterReplicaPool = ConnectionPoolSupport.createGenericObjectPool(
+                    { MasterReplica.connect(client, StringCodec.UTF8, uri).apply {
+                        readFrom = slaves.readFrom
+                    } },
+                    redis.pool.slavesPoolConfig()
+                )
+                // 连接异步
+                AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
+                    { MasterReplica.connectAsync(client, StringCodec.UTF8, uri).whenComplete { v, _ ->
+                        v.readFrom = slaves.readFrom
+                    } },
+                    redis.asyncPool.poolConfig()
+                ).thenAccept {
+                    masterAsyncReplicaPool = it
+                    RedisMonitor.onConnected()
+                    completableFuture.complete(null)
+                }.exceptionally { e ->
+                    onConnectionFailed(e)
+                    completableFuture.complete(null)
+                    null
+                }
+            } else {
+                // 连接同步
+                pool = ConnectionPoolSupport.createGenericObjectPool(
+                    { client.connect() },
+                    redis.pool.poolConfig()
+                )
+                // 连接异步
+                AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
+                    { client.connectAsync(StringCodec.UTF8, uri) },
+                    redis.asyncPool.poolConfig()
+                ).thenAccept {
+                    asyncPool = it
+                    RedisMonitor.onConnected()
+                    completableFuture.complete(null)
+                }.exceptionally { e ->
+                    onConnectionFailed(e)
+                    completableFuture.complete(null)
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            onConnectionFailed(e)
+            completableFuture.complete(null)
         }
         return completableFuture
     }
 
+    private fun onConnectionFailed(e: Throwable) {
+        severe("Redis 连接失败: ${e.message}")
+        severe("插件将被禁用，请检查配置后使用 /redis reconnect 重新连接")
+        try {
+            Bukkit.getPluginManager().disablePlugin(BukkitPlugin.getInstance())
+        } catch (t: Throwable) {
+            severe("禁用插件时发生异常: ${t.message}")
+        }
+        RedisChannelPlugin.type = null
+    }
+
     @Awake(LifeCycle.DISABLE)
     internal fun stop() {
-        if (RedisChannelPlugin.type == RedisChannelPlugin.Type.SINGLE) {
-            if (enabledSlaves) {
-                masterAsyncReplicaPool.close()
-                masterReplicaPool.close()
-            } else {
-                asyncPool.close()
-                pool.close()
-            }
-            client.shutdown()
-            resources.shutdown()
+        if (RedisChannelPlugin.type != RedisChannelPlugin.Type.SINGLE) return
+        RedisMonitor.onDisconnected()
+        pubSubConnection.close()
+        if (enabledSlaves) {
+            masterAsyncReplicaPool.close()
+            masterReplicaPool.close()
+        } else {
+            asyncPool.close()
+            pool.close()
         }
+        client.shutdown()
+        resources.shutdown()
     }
 
     override fun <T> useCommands(block: Function<RedisCommands<String, String>, T>): T? {

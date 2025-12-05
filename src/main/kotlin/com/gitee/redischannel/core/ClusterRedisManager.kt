@@ -22,9 +22,12 @@ import io.lettuce.core.support.AsyncConnectionPoolSupport
 import io.lettuce.core.support.BoundedAsyncPool
 import io.lettuce.core.support.ConnectionPoolSupport
 import org.apache.commons.pool2.impl.GenericObjectPool
+import org.bukkit.Bukkit
 import taboolib.common.LifeCycle
 import taboolib.common.platform.Awake
+import taboolib.common.platform.function.severe
 import taboolib.common.platform.function.warning
+import taboolib.platform.BukkitPlugin
 import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
 import java.util.function.Function
@@ -50,81 +53,104 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         }
         RedisChannelPlugin.init(RedisChannelPlugin.Type.CLUSTER)
 
-        val resource = DefaultClientResources.builder()
+        try {
+            val resource = DefaultClientResources.builder()
 
-        if (redis.ioThreadPoolSize != 0) {
-            resource.ioThreadPoolSize(4)
-        }
-        if (redis.computationThreadPoolSize != 0) {
-            resource.computationThreadPoolSize(4)
-        }
+            if (redis.ioThreadPoolSize != 0) {
+                resource.ioThreadPoolSize(redis.ioThreadPoolSize)
+            }
+            if (redis.computationThreadPoolSize != 0) {
+                resource.computationThreadPoolSize(redis.computationThreadPoolSize)
+            }
 
-        val cluster = redis.cluster
+            val cluster = redis.cluster
 
-        val uris = cluster.nodes.map {
-            it.redisURIBuilder().build()
-        }
-        val clientOptions = ClusterClientOptions.builder()
+            val uris = cluster.nodes.map {
+                it.redisURIBuilder().build()
+            }
+            val clientOptions = ClusterClientOptions.builder()
 
-        if (redis.ssl) {
-            clientOptions.sslOptions(redis.sslOptions)
-        }
+            if (redis.ssl) {
+                clientOptions.sslOptions(redis.sslOptions)
+            }
 
-        val topologyRefreshOptions = ClusterTopologyRefreshOptions.builder()
-            .enablePeriodicRefresh(cluster.enablePeriodicRefresh)
-            .enableAdaptiveRefreshTrigger(*cluster.enableAdaptiveRefreshTrigger.toTypedArray())
-            .refreshTriggersReconnectAttempts(cluster.refreshTriggersReconnectAttempts)
-            .dynamicRefreshSources(cluster.dynamicRefreshSources)
-            .closeStaleConnections(cluster.closeStaleConnections)
+            val topologyRefreshOptions = ClusterTopologyRefreshOptions.builder()
+                .enablePeriodicRefresh(cluster.enablePeriodicRefresh)
+                .enableAdaptiveRefreshTrigger(*cluster.enableAdaptiveRefreshTrigger.toTypedArray())
+                .refreshTriggersReconnectAttempts(cluster.refreshTriggersReconnectAttempts)
+                .dynamicRefreshSources(cluster.dynamicRefreshSources)
+                .closeStaleConnections(cluster.closeStaleConnections)
 
-        cluster.adaptiveRefreshTriggersTimeout?.toJavaDuration()?.let { topologyRefreshOptions.adaptiveRefreshTriggersTimeout(it) }
-        cluster.refreshPeriod?.toJavaDuration()?.let { topologyRefreshOptions.refreshPeriod(it) }
-        clientOptions
-            .topologyRefreshOptions(topologyRefreshOptions.build())
-            .autoReconnect(redis.autoReconnect)
-            .maxRedirects(cluster.maxRedirects)
-            .validateClusterNodeMembership(cluster.validateClusterNodeMembership)
-            .pingBeforeActivateConnection(redis.pingBeforeActivateConnection)
+            cluster.adaptiveRefreshTriggersTimeout?.toJavaDuration()?.let { topologyRefreshOptions.adaptiveRefreshTriggersTimeout(it) }
+            cluster.refreshPeriod?.toJavaDuration()?.let { topologyRefreshOptions.refreshPeriod(it) }
+            clientOptions
+                .topologyRefreshOptions(topologyRefreshOptions.build())
+                .autoReconnect(redis.autoReconnect)
+                .maxRedirects(cluster.maxRedirects)
+                .validateClusterNodeMembership(cluster.validateClusterNodeMembership)
+                .pingBeforeActivateConnection(redis.pingBeforeActivateConnection)
 
-        resources = resource.build()
-        client = RedisClusterClient.create(resources, uris)
+            resources = resource.build()
+            client = RedisClusterClient.create(resources, uris)
+            client.setOptions(clientOptions.build())
 
-        // 连接 pub/sub 通道
-        pubSubConnection = client.connectPubSub()
-        // 连接同步
-        pool = ConnectionPoolSupport.createGenericObjectPool(
-            { client.connect().apply {
-                if (redis.enableSlaves) {
-                    val slaves = redis.slaves
-                    readFrom = slaves.readFrom
-                }
-            } },
-            redis.pool.clusterPoolConfig()
-        )
-        // 连接异步
-        AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
-            { client.connectAsync(StringCodec.UTF8).whenComplete { v, _ ->
-                if (redis.enableSlaves) {
-                    val slaves = redis.slaves
-                    v.readFrom = slaves.readFrom
-                }
-            } },
-            redis.asyncPool.asyncClusterPoolConfig()
-        ).thenAccept {
-            asyncPool = it
+            // 连接 pub/sub 通道
+            pubSubConnection = client.connectPubSub()
+            // 连接同步
+            pool = ConnectionPoolSupport.createGenericObjectPool(
+                { client.connect().apply {
+                    if (redis.enableSlaves) {
+                        val slaves = redis.slaves
+                        readFrom = slaves.readFrom
+                    }
+                } },
+                redis.pool.clusterPoolConfig()
+            )
+            // 连接异步
+            AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
+                { client.connectAsync(StringCodec.UTF8).whenComplete { v, _ ->
+                    if (redis.enableSlaves) {
+                        val slaves = redis.slaves
+                        v.readFrom = slaves.readFrom
+                    }
+                } },
+                redis.asyncPool.poolConfig()
+            ).thenAccept {
+                asyncPool = it
+                RedisMonitor.onConnected()
+                completableFuture.complete(null)
+            }.exceptionally { e ->
+                onConnectionFailed(e)
+                completableFuture.complete(null)
+                null
+            }
+        } catch (e: Exception) {
+            onConnectionFailed(e)
             completableFuture.complete(null)
         }
         return completableFuture
     }
 
+    private fun onConnectionFailed(e: Throwable) {
+        severe("Redis 集群连接失败: ${e.message}")
+        severe("插件将被禁用，请检查配置后使用 /redis reconnect 重新连接")
+        try {
+            Bukkit.getPluginManager().disablePlugin(BukkitPlugin.getInstance())
+        } catch (t: Throwable) {
+            severe("禁用插件时发生异常: ${t.message}")
+        }
+        RedisChannelPlugin.type = null
+    }
+
     @Awake(LifeCycle.DISABLE)
     internal fun stop() {
-        if (RedisChannelPlugin.type == RedisChannelPlugin.Type.CLUSTER) {
-            asyncPool.close()
-            pool.close()
-            client.shutdown()
-            resources.shutdown()
-        }
+        if (RedisChannelPlugin.type != RedisChannelPlugin.Type.CLUSTER) return
+        RedisMonitor.onDisconnected()
+        pubSubConnection.close()
+        asyncPool.close()
+        pool.close()
+        client.shutdown()
+        resources.shutdown()
     }
 
     override fun <T> useCommands(block: Function<RedisClusterCommands<String, String>, T>): T? {
