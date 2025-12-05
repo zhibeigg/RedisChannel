@@ -91,6 +91,7 @@ object RedisMonitor {
     fun getSnapshot(): MonitorSnapshot {
         val poolStats = getPoolStats()
         val serverInfo = getServerInfo()
+        val deploymentInfo = getDeploymentInfo()
 
         return MonitorSnapshot(
             status = connectionStatus,
@@ -102,7 +103,8 @@ object RedisMonitor {
             successCount = commandSuccessCount.get(),
             failCount = commandFailCount.get(),
             poolStats = poolStats,
-            serverInfo = serverInfo
+            serverInfo = serverInfo,
+            deploymentInfo = deploymentInfo
         )
     }
 
@@ -189,6 +191,48 @@ object RedisMonitor {
     }
 
     /**
+     * 获取部署模式信息
+     */
+    private fun getDeploymentInfo(): DeploymentInfo? {
+        return try {
+            val redis = RedisChannelPlugin.redis
+
+            when (RedisChannelPlugin.type) {
+                SINGLE -> {
+                    val isSentinel = redis.enableSentinel
+                    val isSlaves = redis.enableSlaves
+
+                    DeploymentInfo(
+                        isSentinel = isSentinel,
+                        sentinelMasterId = if (isSentinel) redis.sentinel.masterId else null,
+                        sentinelNodes = if (isSentinel) redis.sentinel.nodes.map { "${it.host}:${it.port}" } else null,
+                        isSlaves = isSlaves,
+                        readFrom = if (isSlaves) redis.slaves.readFrom.toString() else null,
+                        isCluster = false,
+                        clusterNodeCount = null
+                    )
+                }
+                CLUSTER -> {
+                    val isSlaves = redis.enableSlaves
+
+                    DeploymentInfo(
+                        isSentinel = false,
+                        sentinelMasterId = null,
+                        sentinelNodes = null,
+                        isSlaves = isSlaves,
+                        readFrom = if (isSlaves) redis.slaves.readFrom.toString() else null,
+                        isCluster = true,
+                        clusterNodeCount = redis.cluster.nodes.size
+                    )
+                }
+                null -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * 定时健康检查
      */
     @Schedule(period = 100, async = true)
@@ -234,7 +278,8 @@ object RedisMonitor {
         val successCount: Long,
         val failCount: Long,
         val poolStats: PoolStats?,
-        val serverInfo: ServerInfo?
+        val serverInfo: ServerInfo?,
+        val deploymentInfo: DeploymentInfo?
     ) {
         val successRate: Double
             get() = if (commandCount > 0) (successCount.toDouble() / commandCount * 100) else 100.0
@@ -263,5 +308,18 @@ object RedisMonitor {
         val connectedClients: Int?,
         val usedMemory: String?,
         val usedMemoryPeak: String?
+    )
+
+    /**
+     * 部署模式信息
+     */
+    data class DeploymentInfo(
+        val isSentinel: Boolean,
+        val sentinelMasterId: String? = null,
+        val sentinelNodes: List<String>? = null,
+        val isSlaves: Boolean,
+        val readFrom: String? = null,
+        val isCluster: Boolean,
+        val clusterNodeCount: Int? = null
     )
 }

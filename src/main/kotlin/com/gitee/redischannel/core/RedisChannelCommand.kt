@@ -58,6 +58,53 @@ object RedisChannelCommand {
             sender.sendMessage("  §7运行时间: §f${formatDuration(it)}")
         }
 
+        // 部署模式详情
+        snapshot.deploymentInfo?.let { deployment ->
+            sender.sendMessage("")
+            sender.sendMessage("§7▎ §f部署模式")
+
+            when {
+                deployment.isCluster -> {
+                    sender.sendMessage("  §7架构类型: §b集群模式")
+                    deployment.clusterNodeCount?.let {
+                        sender.sendMessage("  §7集群节点: §f${it} 个")
+                    }
+                    if (deployment.isSlaves) {
+                        sender.sendMessage("  §7读写分离: §a已启用")
+                        deployment.readFrom?.let {
+                            sender.sendMessage("  §7读取策略: §f${it}")
+                        }
+                    }
+                }
+                deployment.isSentinel -> {
+                    sender.sendMessage("  §7架构类型: §d哨兵模式")
+                    deployment.sentinelMasterId?.let {
+                        sender.sendMessage("  §7Master ID: §f${it}")
+                    }
+                    deployment.sentinelNodes?.let { nodes ->
+                        sender.sendMessage("  §7哨兵节点: §f${nodes.size} 个")
+                        nodes.forEach { node ->
+                            sender.sendMessage("    §8- §7${node}")
+                        }
+                    }
+                    if (deployment.isSlaves) {
+                        deployment.readFrom?.let {
+                            sender.sendMessage("  §7读取策略: §f${it}")
+                        }
+                    }
+                }
+                deployment.isSlaves -> {
+                    sender.sendMessage("  §7架构类型: §6主从模式")
+                    deployment.readFrom?.let {
+                        sender.sendMessage("  §7读取策略: §f${it}")
+                    }
+                }
+                else -> {
+                    sender.sendMessage("  §7架构类型: §f单机模式")
+                }
+            }
+        }
+
         // 性能指标
         sender.sendMessage("")
         sender.sendMessage("§7▎ §f性能指标")
