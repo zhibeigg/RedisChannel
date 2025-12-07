@@ -19,7 +19,7 @@ taboolib {
         install(Basic)
         install(Bukkit)
         install(CommandHelper)
-        // repoTabooLib = "https://www.mcwar.cn/nexus/repository/maven-public/"
+        // repoTabooLib = "https://nexus.mcwar.cn/repository/maven-public/"
     }
     description {
         name = "RedisChannel"
@@ -36,7 +36,7 @@ taboolib {
 
 repositories {
     mavenCentral()
-    maven("https://www.mcwar.cn/nexus/repository/maven-public/")
+    maven("https://nexus.mcwar.cn/repository/maven-public/")
 }
 
 dependencies {
@@ -73,7 +73,7 @@ configure<JavaPluginExtension> {
 publishing {
     repositories {
         maven {
-            url = uri("https://www.mcwar.cn/nexus/repository/maven-releases/")
+            url = uri("https://nexus.mcwar.cn/repository/maven-releases/")
             credentials {
                 username = publishUsername
                 password = publishPassword
