@@ -74,10 +74,24 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
 
             val topologyRefreshOptions = ClusterTopologyRefreshOptions.builder()
                 .enablePeriodicRefresh(cluster.enablePeriodicRefresh)
-                .enableAdaptiveRefreshTrigger(*cluster.enableAdaptiveRefreshTrigger.toTypedArray())
                 .refreshTriggersReconnectAttempts(cluster.refreshTriggersReconnectAttempts)
                 .dynamicRefreshSources(cluster.dynamicRefreshSources)
                 .closeStaleConnections(cluster.closeStaleConnections)
+
+            // Lettuce 7.0+ 默认启用所有自适应触发器，需要禁用未配置的触发器
+            val configuredTriggers = cluster.enableAdaptiveRefreshTrigger.toSet()
+            if (configuredTriggers.isEmpty()) {
+                // 如果未配置任何触发器，禁用所有
+                topologyRefreshOptions.disableAllAdaptiveRefreshTriggers()
+            } else {
+                // 禁用未配置的触发器
+                val triggersToDisable = ClusterTopologyRefreshOptions.RefreshTrigger.entries
+                    .filter { it !in configuredTriggers }
+                    .toTypedArray()
+                if (triggersToDisable.isNotEmpty()) {
+                    topologyRefreshOptions.disableAdaptiveRefreshTrigger(*triggersToDisable)
+                }
+            }
 
             cluster.adaptiveRefreshTriggersTimeout?.toJavaDuration()?.let { topologyRefreshOptions.adaptiveRefreshTriggersTimeout(it) }
             cluster.refreshPeriod?.toJavaDuration()?.let { topologyRefreshOptions.refreshPeriod(it) }
