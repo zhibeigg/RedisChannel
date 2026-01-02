@@ -28,7 +28,6 @@ import taboolib.common.platform.Awake
 import taboolib.common.platform.function.severe
 import taboolib.common.platform.function.warning
 import taboolib.platform.BukkitPlugin
-import taboolib.platform.bukkit.Parallel
 import java.util.concurrent.CompletableFuture
 import java.util.function.Function
 import kotlin.time.toJavaDuration

@@ -44,7 +44,7 @@ dependencies {
     compileOnly("ink.ptms.core:v12004:12004:universal")
 
     api("io.lettuce:lettuce-core:7.2.1.RELEASE")
-    compileOnly("org.apache.commons:commons-pool2:2.12.1")
+    compileOnly("org.apache.commons:commons-pool2:2.12.0")
 
     compileOnly(kotlin("stdlib"))
     compileOnly(fileTree("libs"))
