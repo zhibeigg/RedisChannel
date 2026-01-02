@@ -121,13 +121,13 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
 
     var enabledSlaves = false
 
-    @Parallel("redis_channel", runOn = LifeCycle.ENABLE)
     internal fun start() {
         val redis = RedisChannelPlugin.redis
 
         if (redis.enableCluster) {
             return
         }
+
         RedisChannelPlugin.init(RedisChannelPlugin.Type.SINGLE)
 
         try {

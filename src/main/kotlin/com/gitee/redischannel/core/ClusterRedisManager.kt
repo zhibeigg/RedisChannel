@@ -43,12 +43,13 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
     lateinit var pubSubConnection: StatefulRedisClusterPubSubConnection<String, String>
     lateinit var resources: DefaultClientResources
 
-    @Parallel("redis_channel", runOn = LifeCycle.ENABLE)
     internal fun start() {
         val redis = RedisChannelPlugin.redis
+
         if (!redis.enableCluster) {
             return
         }
+
         RedisChannelPlugin.init(RedisChannelPlugin.Type.CLUSTER)
 
         try {

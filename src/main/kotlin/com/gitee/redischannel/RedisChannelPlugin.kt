@@ -10,10 +10,12 @@ import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
 import com.gitee.redischannel.core.ClusterRedisManager
 import com.gitee.redischannel.core.RedisConfig
 import com.gitee.redischannel.core.RedisManager
+import taboolib.common.LifeCycle
 import taboolib.common.platform.Plugin
 import taboolib.common.platform.function.pluginVersion
 import taboolib.module.configuration.Config
 import taboolib.module.configuration.Configuration
+import taboolib.platform.bukkit.Parallel
 
 object RedisChannelPlugin : Plugin() {
 
@@ -49,6 +51,15 @@ object RedisChannelPlugin : Plugin() {
             SINGLE -> RedisManager
             null -> error("Redis 连接未初始化")
         }
+
+    @Parallel("redis_channel", runOn = LifeCycle.ENABLE)
+    fun start() {
+        if (redis.enableCluster) {
+            ClusterRedisManager.start()
+        } else {
+            RedisManager.start()
+        }
+    }
 
     /**
      * 获取集群命令API
