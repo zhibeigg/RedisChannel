@@ -43,13 +43,11 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
     lateinit var pubSubConnection: StatefulRedisClusterPubSubConnection<String, String>
     lateinit var resources: DefaultClientResources
 
-    @Parallel(runOn = LifeCycle.ENABLE)
-    internal fun start(): CompletableFuture<Void> {
-        val completableFuture = CompletableFuture<Void>()
+    @Parallel("redis_channel", runOn = LifeCycle.ENABLE)
+    internal fun start() {
         val redis = RedisChannelPlugin.redis
         if (!redis.enableCluster) {
-            completableFuture.complete(null)
-            return completableFuture
+            return
         }
         RedisChannelPlugin.init(RedisChannelPlugin.Type.CLUSTER)
 
@@ -107,7 +105,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
                 redis.pool.clusterPoolConfig()
             )
             // 连接异步
-            AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
+            asyncPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
                 { client.connectAsync(StringCodec.UTF8).whenComplete { v, _ ->
                     if (redis.enableSlaves) {
                         val slaves = redis.slaves
@@ -115,20 +113,11 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
                     }
                 } },
                 redis.asyncPool.poolConfig()
-            ).thenAccept {
-                asyncPool = it
-                RedisMonitor.onConnected()
-                completableFuture.complete(null)
-            }.exceptionally { e ->
-                onConnectionFailed(e)
-                completableFuture.complete(null)
-                null
-            }
+            )
+            RedisMonitor.onConnected()
         } catch (e: Exception) {
             onConnectionFailed(e)
-            completableFuture.complete(null)
         }
-        return completableFuture
     }
 
     private fun onConnectionFailed(e: Throwable) {

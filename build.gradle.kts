@@ -27,7 +27,7 @@ taboolib {
             name("zhibei")
         }
     }
-    version { taboolib = "6.2.3-b217935" }
+    version { taboolib = "6.2.4-abd325ee" }
     relocate("org.reactivestreams", "com.gitee.redischannel.reactivestreams")
     relocate("reactor", "com.gitee.redischannel.reactor")
     relocate("org.apache.commons.pool2", "com.gitee.redischannel.commons.pool2")
@@ -43,7 +43,7 @@ dependencies {
     compileOnly("ink.ptms.core:v12004:12004:mapped")
     compileOnly("ink.ptms.core:v12004:12004:universal")
 
-    api("io.lettuce:lettuce-core:6.6.0.RELEASE")
+    api("io.lettuce:lettuce-core:7.2.1.RELEASE")
     compileOnly("org.apache.commons:commons-pool2:2.12.1")
 
     compileOnly(kotlin("stdlib"))

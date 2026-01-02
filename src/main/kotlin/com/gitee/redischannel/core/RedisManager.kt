@@ -37,7 +37,7 @@ import java.util.function.Function
 
 @RuntimeDependencies(
     RuntimeDependency(
-        "!io.lettuce:lettuce-core:6.6.0.RELEASE",
+        "!io.lettuce:lettuce-core:7.2.1.RELEASE",
         test = "!io.lettuce.core.RedisURI",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty",
             "!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2",
@@ -121,14 +121,12 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
 
     var enabledSlaves = false
 
-    @Parallel(runOn = LifeCycle.ENABLE)
-    internal fun start(): CompletableFuture<Void> {
-        val completableFuture = CompletableFuture<Void>()
+    @Parallel("redis_channel", runOn = LifeCycle.ENABLE)
+    internal fun start() {
         val redis = RedisChannelPlugin.redis
 
         if (redis.enableCluster) {
-            completableFuture.complete(null)
-            return completableFuture
+            return
         }
         RedisChannelPlugin.init(RedisChannelPlugin.Type.SINGLE)
 
@@ -170,20 +168,12 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                     redis.pool.slavesPoolConfig()
                 )
                 // 连接异步
-                AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
+                masterAsyncReplicaPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
                     { MasterReplica.connectAsync(client, StringCodec.UTF8, uri).whenComplete { v, _ ->
                         v.readFrom = slaves.readFrom
                     } },
                     redis.asyncPool.poolConfig()
-                ).thenAccept {
-                    masterAsyncReplicaPool = it
-                    RedisMonitor.onConnected()
-                    completableFuture.complete(null)
-                }.exceptionally { e ->
-                    onConnectionFailed(e)
-                    completableFuture.complete(null)
-                    null
-                }
+                )
             } else {
                 // 连接同步
                 pool = ConnectionPoolSupport.createGenericObjectPool(
@@ -191,24 +181,15 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                     redis.pool.poolConfig()
                 )
                 // 连接异步
-                AsyncConnectionPoolSupport.createBoundedObjectPoolAsync(
+                asyncPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
                     { client.connectAsync(StringCodec.UTF8, uri) },
                     redis.asyncPool.poolConfig()
-                ).thenAccept {
-                    asyncPool = it
-                    RedisMonitor.onConnected()
-                    completableFuture.complete(null)
-                }.exceptionally { e ->
-                    onConnectionFailed(e)
-                    completableFuture.complete(null)
-                    null
-                }
+                )
             }
+            RedisMonitor.onConnected()
         } catch (e: Exception) {
             onConnectionFailed(e)
-            completableFuture.complete(null)
         }
-        return completableFuture
     }
 
     private fun onConnectionFailed(e: Throwable) {

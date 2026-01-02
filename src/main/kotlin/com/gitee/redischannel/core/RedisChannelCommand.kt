@@ -29,14 +29,12 @@ object RedisChannelCommand {
         // 重新加载配置
         RedisChannelPlugin.reloadConfig()
         // 根据新配置决定启动哪个 Manager
-        val future = if (RedisChannelPlugin.redis.enableCluster) {
+        if (RedisChannelPlugin.redis.enableCluster) {
             ClusterRedisManager.start()
         } else {
             RedisManager.start()
         }
-        future.thenRun {
-            sender.sendMessage("§aRedisChannel 重载成功")
-        }
+        sender.sendMessage("§aRedisChannel 重载成功")
     }
 
     @CommandBody

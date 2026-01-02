@@ -285,6 +285,25 @@ val pubSubAPI = RedisChannelPlugin.pubSubAPI()             // 发布订阅 API
 val clusterPubSubAPI = RedisChannelPlugin.clusterPubSubAPI()    // 集群发布订阅 API
 ```
 
+### 确保 Redis 连接后使用
+
+如果你的代码需要在 Redis 连接建立后才能执行，请使用 TabooLib 的 `@Parallel` 注解声明依赖：
+
+```kotlin
+import taboolib.common.LifeCycle
+import taboolib.common.platform.Awake
+import taboolib.common.platform.function.Parallel
+
+@Parallel(dependOn = ["redis_channel"], runOn = LifeCycle.ENABLE)
+fun onEnable() {
+    // 此方法会在 RedisChannel 连接完成后执行
+    val api = RedisChannelPlugin.api
+    // 安全地使用 Redis API...
+}
+```
+
+> **注意**: `dependOn = ["redis_channel"]` 确保你的初始化代码在 RedisChannel 完成连接后才执行，避免出现连接尚未建立就调用 API 的问题。
+
 ### 命令操作
 
 #### 同步操作
