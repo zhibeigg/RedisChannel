@@ -37,7 +37,7 @@ import java.util.function.Function
 
 @RuntimeDependencies(
     RuntimeDependency(
-        "!io.lettuce:lettuce-core:7.2.1.RELEASE",
+        "!io.lettuce:lettuce-core:6.5.5.RELEASE",
         test = "!io.lettuce.core.RedisURI",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty",
             "!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2",
@@ -58,49 +58,49 @@ import java.util.function.Function
         transitive = false
     ),
     RuntimeDependency(
-        "!org.apache.commons:commons-pool2:2.12.0",
+        "!org.apache.commons:commons-pool2:2.12.1",
         test = "!com.gitee.redischannel.commons.pool2.BaseObject",
         relocate = ["!org.apache.commons.pool2", "!com.gitee.redischannel.commons.pool2"],
         transitive = false
     ),
     RuntimeDependency(
-        value = "!io.netty:netty-common:4.2.5.Final",
+        value = "!io.netty:netty-common:4.1.118.Final",
         test = "!com.gitee.redischannel.netty.util.AbstractConstant",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
         transitive = false
     ),
     RuntimeDependency(
-        value = "!io.netty:netty-buffer:4.2.5.Final",
+        value = "!io.netty:netty-buffer:4.1.118.Final",
         test = "!com.gitee.redischannel.netty.buffer.AbstractByteBuf",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
         transitive = false
     ),
     RuntimeDependency(
-        value = "!io.netty:netty-codec:4.2.5.Final",
-        test = "!com.gitee.redischannel.netty.handler.codec.AsciiHeadersEncoder",
+        value = "!io.netty:netty-codec:4.1.118.Final",
+        test = "!com.gitee.redischannel.netty.handler.codec.MessageToMessageDecoder",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
         transitive = false
     ),
     RuntimeDependency(
-        value = "!io.netty:netty-handler:4.2.5.Final",
-        test = "!com.gitee.redischannel.netty.handler.address.ResolveAddressHandler",
+        value = "!io.netty:netty-handler:4.1.118.Final",
+        test = "!com.gitee.redischannel.netty.handler.ssl.SslHandler",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
         transitive = false
     ),
     RuntimeDependency(
-        value = "!io.netty:netty-resolver:4.2.5.Final",
+        value = "!io.netty:netty-resolver:4.1.118.Final",
         test = "!com.gitee.redischannel.netty.resolver.AbstractAddressResolver",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
         transitive = false
     ),
     RuntimeDependency(
-        value = "!io.netty:netty-transport:4.2.5.Final",
+        value = "!io.netty:netty-transport:4.1.118.Final",
         test = "!com.gitee.redischannel.netty.bootstrap.Bootstrap",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
         transitive = false
     ),
     RuntimeDependency(
-        value = "!io.netty:netty-transport-native-unix-common:4.2.5.Final",
+        value = "!io.netty:netty-transport-native-unix-common:4.1.118.Final",
         test = "!com.gitee.redischannel.netty.channel.unix.Buffer",
         relocate = ["!io.netty", "!com.gitee.redischannel.netty"],
         transitive = false
