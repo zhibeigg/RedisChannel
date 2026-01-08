@@ -7,15 +7,19 @@ import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
 import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
 import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
+import com.gitee.redischannel.api.events.ClientStartEvent
 import com.gitee.redischannel.core.ClusterRedisManager
 import com.gitee.redischannel.core.RedisConfig
 import com.gitee.redischannel.core.RedisManager
 import taboolib.common.LifeCycle
+import taboolib.common.platform.Awake
 import taboolib.common.platform.Plugin
 import taboolib.common.platform.function.pluginVersion
+import taboolib.common.platform.function.submit
 import taboolib.module.configuration.Config
 import taboolib.module.configuration.Configuration
 import taboolib.platform.bukkit.Parallel
+import taboolib.platform.bukkit.parallel
 
 object RedisChannelPlugin : Plugin() {
 
@@ -52,12 +56,18 @@ object RedisChannelPlugin : Plugin() {
             null -> error("Redis 连接未初始化")
         }
 
-    @Parallel("redis_channel", runOn = LifeCycle.ENABLE)
+    @Awake(LifeCycle.INIT)
     fun start() {
-        if (redis.enableCluster) {
-            ClusterRedisManager.start()
-        } else {
-            RedisManager.start()
+        parallel("redis_channel") {
+            if (redis.enableCluster) {
+                ClusterRedisManager.start()
+            } else {
+                RedisManager.start()
+            }
+        }.whenComplete { unit, throwable ->
+            submit {
+                ClientStartEvent(redis.enableCluster).call()
+            }
         }
     }
 
