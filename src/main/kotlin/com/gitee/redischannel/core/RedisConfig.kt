@@ -32,6 +32,7 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
 
     val autoReconnect = configurationSection.getBoolean("autoReconnect", false)
     val pingBeforeActivateConnection = configurationSection.getBoolean("pingBeforeActivateConnection", true)
+    val maintNotifications = configurationSection.getBoolean("maintNotifications", false)
 
     val sslOptions: SslOptions
         get() {

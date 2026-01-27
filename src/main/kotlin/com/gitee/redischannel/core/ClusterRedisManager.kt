@@ -71,6 +71,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
             if (redis.ssl) {
                 clientOptions.sslOptions(redis.sslOptions)
             }
+            clientOptions.maintNotificationsConfig(MaintNotifications.fromEnabled(redis.maintNotifications))
 
             val topologyRefreshOptions = ClusterTopologyRefreshOptions.builder()
                 .enablePeriodicRefresh(cluster.enablePeriodicRefresh)

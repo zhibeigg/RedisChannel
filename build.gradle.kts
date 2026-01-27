@@ -50,6 +50,9 @@ dependencies {
 
     compileOnly(kotlin("stdlib"))
     compileOnly(fileTree("libs"))
+
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }
 
 tasks.withType<JavaCompile> {
@@ -65,6 +68,10 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
 
 tasks.withType<Jar> {
     destinationDirectory.set(File(build))
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 configure<JavaPluginExtension> {

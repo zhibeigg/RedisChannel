@@ -170,6 +170,8 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                 .autoReconnect(redis.autoReconnect)
                 .pingBeforeActivateConnection(redis.pingBeforeActivateConnection)
 
+            clientOptions.maintNotificationsConfig(MaintNotifications.fromEnabled(redis.maintNotifications))
+
             if (redis.ssl) {
                 clientOptions.sslOptions(redis.sslOptions)
             }

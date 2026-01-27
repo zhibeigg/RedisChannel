@@ -23,6 +23,8 @@ redis:
   autoReconnect: false
   # 连接激活之前是否执行 PING 命令
   pingBeforeActivateConnection: true
+  # 维护事件通知（CLIENT MAINT_NOTIFICATIONS）
+  maintNotifications: false
   # 单机哨兵模式配置
   sentinel:
     enable: false
