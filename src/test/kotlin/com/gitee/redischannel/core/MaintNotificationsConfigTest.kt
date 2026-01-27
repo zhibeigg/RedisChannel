@@ -4,6 +4,7 @@ import io.lettuce.core.MaintNotificationsConfig
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -27,7 +28,10 @@ class MaintNotificationsConfigTest {
 
     @Test
     fun configTemplateDefaultsToFalse() {
-        val content = Files.readString(Paths.get("src/main/resources/config.yml"))
+        val content = String(
+            Files.readAllBytes(Paths.get("src/main/resources/config.yml")),
+            StandardCharsets.UTF_8
+        )
         val hasDefault = Regex("(?m)^\\s*maintNotifications:\\s*false\\s*$").containsMatchIn(content)
         assertTrue(hasDefault, "Expected maintNotifications default to be false in config.yml")
     }
