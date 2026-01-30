@@ -72,9 +72,9 @@ object RedisChannelPlugin : Plugin() {
                 RedisManager.start()
             }
         }.whenComplete { _, _ ->
-            initialized = true
             submit {
                 ClientStartEvent(redis.enableCluster).call()
+                initialized = true
             }
         }
     }
