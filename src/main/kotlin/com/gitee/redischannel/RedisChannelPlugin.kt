@@ -11,14 +11,15 @@ import com.gitee.redischannel.api.events.ClientStartEvent
 import com.gitee.redischannel.core.ClusterRedisManager
 import com.gitee.redischannel.core.RedisConfig
 import com.gitee.redischannel.core.RedisManager
+import org.bukkit.event.player.PlayerLoginEvent
 import taboolib.common.LifeCycle
 import taboolib.common.platform.Awake
 import taboolib.common.platform.Plugin
+import taboolib.common.platform.event.SubscribeEvent
 import taboolib.common.platform.function.pluginVersion
 import taboolib.common.platform.function.submit
 import taboolib.module.configuration.Config
 import taboolib.module.configuration.Configuration
-import taboolib.platform.bukkit.Parallel
 import taboolib.platform.bukkit.parallel
 
 object RedisChannelPlugin : Plugin() {
@@ -31,6 +32,12 @@ object RedisChannelPlugin : Plugin() {
 
     var type: Type? = null
         internal set
+
+    /**
+     * Redis 客户端是否已初始化完成
+     */
+    var initialized: Boolean = false
+        private set
 
     enum class Type {
         CLUSTER, SINGLE;
@@ -64,7 +71,8 @@ object RedisChannelPlugin : Plugin() {
             } else {
                 RedisManager.start()
             }
-        }.whenComplete { unit, throwable ->
+        }.whenComplete { _, _ ->
+            initialized = true
             submit {
                 ClientStartEvent(redis.enableCluster).call()
             }
@@ -110,5 +118,12 @@ object RedisChannelPlugin : Plugin() {
         println("§9 \\ \\_\\ \\_\\  \\ \\_____\\  \\ \\____-  \\ \\_\\  \\/\\_____\\")
         println("§9  \\/_/ /_/   \\/_____/   \\/____/   \\/_/   \\/_____/")
         println()
+    }
+
+    @SubscribeEvent
+    fun onPlayerLogin(event: PlayerLoginEvent) {
+        if (!initialized) {
+            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, "§c服务器正在初始化 Redis 连接，请稍后再试")
+        }
     }
 }
