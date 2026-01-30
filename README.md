@@ -3,10 +3,10 @@
 # RedisChannel
 
 <img src="https://img.shields.io/badge/Minecraft-1.12+-green?style=flat-square" alt="Minecraft">
-<img src="https://img.shields.io/badge/Kotlin-1.8+-purple?style=flat-square&logo=kotlin" alt="Kotlin">
+<img src="https://img.shields.io/badge/Kotlin-2.1+-purple?style=flat-square&logo=kotlin" alt="Kotlin">
 <img src="https://img.shields.io/badge/Redis-6.0+-red?style=flat-square&logo=redis" alt="Redis">
 <img src="https://img.shields.io/badge/License-CC0%201.0-blue?style=flat-square" alt="License">
-<img src="https://img.shields.io/badge/Version-1.11.7-orange?style=flat-square" alt="Version">
+<img src="https://img.shields.io/badge/Version-1.14.8-orange?style=flat-square" alt="Version">
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zhibeigg/RedisChannel)
 
@@ -262,11 +262,11 @@ redis:
 
 ```kotlin
 repositories {
-    maven("https://www.mcwar.cn/nexus/repository/maven-public/")
+    maven("https://jfrog.mcwar.cn/artifactory/maven-releases")
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:1.11.7:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:1.14.8:api")
 }
 ```
 
@@ -413,6 +413,63 @@ class MyPlugin : JavaPlugin() {
 }
 ```
 
+### 错误处理
+
+当 Redis 连接池耗尽时，会出现以下错误：
+
+```
+[RedisChannel] Failed to acquire connection: java.util.NoSuchElementException: Pool exhausted
+```
+
+此时 API 方法会返回 `null`（同步方法）或 `CompletableFuture<null>`（异步方法）。依赖此插件的其他插件应该正确处理这种情况：
+
+#### 同步操作 - 检查 null 返回值
+
+```kotlin
+// ❌ 错误示例 - 不处理 null
+val result = RedisChannelPlugin.api.useCommands { it.get("key") }
+println(result.length) // 可能 NPE
+
+// ✅ 正确示例 - 处理 null
+val result = RedisChannelPlugin.api.useCommands { it.get("key") }
+if (result == null) {
+    // 连接池耗尽或操作失败，执行降级逻辑
+    logger.warning("Redis 操作失败，使用本地缓存")
+    return localCache.get("key")
+}
+```
+
+#### 异步操作 - 处理 CompletableFuture 中的 null
+
+```kotlin
+RedisChannelPlugin.api.useAsyncCommands { it.get("key") }
+    .thenAccept { result ->
+        if (result == null) {
+            // 连接池耗尽或操作失败
+            handleFallback()
+        } else {
+            processResult(result)
+        }
+    }
+```
+
+#### 推荐的最佳实践
+
+| 策略 | 说明 |
+|------|------|
+| **重试机制** | 短暂等待后重试，但要设置最大重试次数 |
+| **降级处理** | 使用本地缓存或默认值作为备选 |
+| **熔断器** | 连续失败达到阈值后暂停调用，避免雪崩 |
+| **日志记录** | 记录失败情况，便于排查问题 |
+
+#### 根本解决方案
+
+连接池耗尽通常意味着配置不足或存在连接泄漏。建议：
+
+1. **增大连接池** - 修改 `config.yml` 中的 `pool.maxTotal` 和 `asyncPool.maxTotal`
+2. **检查连接泄漏** - 确保所有操作都在 `useCommands` 等方法的 block 内完成
+3. **优化操作** - 减少长时间占用连接的操作，使用 pipeline 批量处理
+
 ---
 
 ## 🎮 游戏内命令
@@ -476,11 +533,11 @@ RedisChannel/
 
 | 组件 | 版本 | 用途 |
 |------|------|------|
-| Kotlin | 1.8+ | 开发语言 |
-| TabooLib | 6.2 | 插件框架 |
-| Lettuce | 6.6.0 | Redis 客户端 |
+| Kotlin | 2.1+ | 开发语言 |
+| TabooLib | 6.2.4 | 插件框架 |
+| Lettuce | 7.2.1 | Redis 客户端 |
 | Project Reactor | 3.6.6 | 响应式支持 |
-| Netty | 4.1.118 | 网络通信 |
+| Netty | 4.2.5 | 网络通信 |
 | Commons Pool2 | 2.12.1 | 连接池 |
 
 ---
