@@ -36,6 +36,7 @@ object RedisChannelPlugin : Plugin() {
     /**
      * Redis 客户端是否已初始化完成
      */
+    @Volatile
     var initialized: Boolean = false
         private set
 

@@ -9,7 +9,7 @@ import taboolib.common.platform.function.warning
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentLinkedDeque
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.LongAdder
 
 /**
  * Redis 连接状态监控
@@ -21,9 +21,9 @@ object RedisMonitor {
         private set
 
     /** 命令执行统计 */
-    private val commandCount = AtomicLong(0)
-    private val commandSuccessCount = AtomicLong(0)
-    private val commandFailCount = AtomicLong(0)
+    private val commandCount = LongAdder()
+    private val commandSuccessCount = LongAdder()
+    private val commandFailCount = LongAdder()
 
     /** 最近的延迟记录 (保留最近100条) */
     private val latencyHistory = ConcurrentLinkedDeque<Long>()
@@ -52,9 +52,9 @@ object RedisMonitor {
     internal fun onConnected() {
         startTime = Instant.now()
         connectionStatus = ConnectionStatus.CONNECTED
-        commandCount.set(0)
-        commandSuccessCount.set(0)
-        commandFailCount.set(0)
+        commandCount.reset()
+        commandSuccessCount.reset()
+        commandFailCount.reset()
         latencyHistory.clear()
     }
 
@@ -71,9 +71,9 @@ object RedisMonitor {
      * 记录命令执行
      */
     fun recordCommand(success: Boolean, latencyMs: Long = 0) {
-        commandCount.incrementAndGet()
+        commandCount.increment()
         if (success) {
-            commandSuccessCount.incrementAndGet()
+            commandSuccessCount.increment()
             if (latencyMs > 0) {
                 latencyHistory.addLast(latencyMs)
                 while (latencyHistory.size > MAX_LATENCY_HISTORY) {
@@ -81,7 +81,7 @@ object RedisMonitor {
                 }
             }
         } else {
-            commandFailCount.incrementAndGet()
+            commandFailCount.increment()
         }
     }
 
@@ -99,9 +99,9 @@ object RedisMonitor {
             uptime = startTime?.let { Duration.between(it, Instant.now()) },
             pingLatency = lastPingLatency,
             avgLatency = if (latencyHistory.isNotEmpty()) latencyHistory.average().toLong() else -1,
-            commandCount = commandCount.get(),
-            successCount = commandSuccessCount.get(),
-            failCount = commandFailCount.get(),
+            commandCount = commandCount.sum(),
+            successCount = commandSuccessCount.sum(),
+            failCount = commandFailCount.sum(),
             poolStats = poolStats,
             serverInfo = serverInfo,
             deploymentInfo = deploymentInfo

@@ -134,17 +134,25 @@ import java.util.function.Function
 )
 internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
 
+    @Volatile
     lateinit var client: RedisClient
 
+    @Volatile
     lateinit var pool: GenericObjectPool<StatefulRedisConnection<String, String>>
+    @Volatile
     lateinit var asyncPool: BoundedAsyncPool<StatefulRedisConnection<String, String>>
 
+    @Volatile
     lateinit var masterReplicaPool: GenericObjectPool<StatefulRedisMasterReplicaConnection<String, String>>
+    @Volatile
     lateinit var masterAsyncReplicaPool: BoundedAsyncPool<StatefulRedisMasterReplicaConnection<String, String>>
 
+    @Volatile
     lateinit var pubSubConnection: StatefulRedisPubSubConnection<String, String>
+    @Volatile
     lateinit var resources: DefaultClientResources
 
+    @Volatile
     var enabledSlaves = false
 
     internal fun start() {
@@ -345,55 +353,55 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
         useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
     ): CompletableFuture<T?> {
         return if (enabledSlaves) {
-            try {
-                val startTime = System.currentTimeMillis()
-                masterAsyncReplicaPool.acquire().thenApply { obj ->
-                    try {
-                        val result = use!!.apply(obj)
-                        RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
-                        result
-                    } catch (e: Throwable) {
-                        warning("Redis operation failed: ${e.message}")
-                        RedisMonitor.recordCommand(false)
-                        null
-                    } finally {
-                        masterAsyncReplicaPool.release(obj)
-                    }
-                }.exceptionally { e ->
-                    warning("Failed to acquire connection: ${e.message}")
+            val startTime = System.currentTimeMillis()
+            val result = CompletableFuture<T?>()
+
+            masterAsyncReplicaPool.acquire().whenComplete { obj, acquireError ->
+                if (acquireError != null) {
+                    warning("Failed to acquire connection: ${acquireError.message}")
                     RedisMonitor.recordCommand(false)
-                    null
+                    result.complete(null)
+                    return@whenComplete
                 }
-            } catch (e: Throwable) {
-                warning("Failed to acquire connection: ${e.message}")
-                RedisMonitor.recordCommand(false)
-                return CompletableFuture.completedFuture(null)
+
+                try {
+                    val value = use!!.apply(obj)
+                    RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+                    result.complete(value)
+                } catch (e: Throwable) {
+                    warning("Redis operation failed: ${e.message}")
+                    RedisMonitor.recordCommand(false)
+                    result.complete(null)
+                } finally {
+                    masterAsyncReplicaPool.release(obj)
+                }
             }
+            result
         } else {
-            try {
-                val startTime = System.currentTimeMillis()
-                asyncPool.acquire().thenApply { obj ->
-                    try {
-                        val result = use!!.apply(obj)
-                        RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
-                        result
-                    } catch (e: Throwable) {
-                        warning("Redis operation failed: ${e.message}")
-                        RedisMonitor.recordCommand(false)
-                        null
-                    } finally {
-                        asyncPool.release(obj)
-                    }
-                }.exceptionally { e ->
-                    warning("Failed to acquire connection: ${e.message}")
+            val startTime = System.currentTimeMillis()
+            val result = CompletableFuture<T?>()
+
+            asyncPool.acquire().whenComplete { obj, acquireError ->
+                if (acquireError != null) {
+                    warning("Failed to acquire connection: ${acquireError.message}")
                     RedisMonitor.recordCommand(false)
-                    null
+                    result.complete(null)
+                    return@whenComplete
                 }
-            } catch (e: Throwable) {
-                warning("Failed to acquire connection: ${e.message}")
-                RedisMonitor.recordCommand(false)
-                return CompletableFuture.completedFuture(null)
+
+                try {
+                    val value = use!!.apply(obj)
+                    RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+                    result.complete(value)
+                } catch (e: Throwable) {
+                    warning("Redis operation failed: ${e.message}")
+                    RedisMonitor.recordCommand(false)
+                    result.complete(null)
+                } finally {
+                    asyncPool.release(obj)
+                }
             }
+            result
         }
     }
 }

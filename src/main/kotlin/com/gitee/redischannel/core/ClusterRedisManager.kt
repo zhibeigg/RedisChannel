@@ -34,12 +34,17 @@ import kotlin.time.toJavaDuration
 
 internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, RedisClusterPubSubAPI {
 
+    @Volatile
     lateinit var client: RedisClusterClient
 
+    @Volatile
     lateinit var pool: GenericObjectPool<StatefulRedisClusterConnection<String, String>>
+    @Volatile
     lateinit var asyncPool: BoundedAsyncPool<StatefulRedisClusterConnection<String, String>>
 
+    @Volatile
     lateinit var pubSubConnection: StatefulRedisClusterPubSubConnection<String, String>
+    @Volatile
     lateinit var resources: DefaultClientResources
 
     internal fun start() {
@@ -231,29 +236,29 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         use: Function<StatefulRedisConnection<String, String>, T>?,
         useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
     ): CompletableFuture<T?> {
-        return try {
-            val startTime = System.currentTimeMillis()
-            asyncPool.acquire().thenApply { connection ->
-                try {
-                    val result = useCluster!!.apply(connection)
-                    RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
-                    result
-                } catch (e: Exception) {
-                    warning("Redis operation failed: ${e.message}")
-                    RedisMonitor.recordCommand(false)
-                    null
-                } finally {
-                    asyncPool.release(connection)
-                }
-            }.exceptionally { e ->
-                warning("Failed to borrow connection: ${e.message}")
+        val startTime = System.currentTimeMillis()
+        val result = CompletableFuture<T?>()
+
+        asyncPool.acquire().whenComplete { connection, acquireError ->
+            if (acquireError != null) {
+                warning("Failed to borrow connection: ${acquireError.message}")
                 RedisMonitor.recordCommand(false)
-                null
+                result.complete(null)
+                return@whenComplete
             }
-        } catch (e: Exception) {
-            warning("Failed to borrow connection: ${e.message}")
-            RedisMonitor.recordCommand(false)
-            CompletableFuture.completedFuture(null)
+
+            try {
+                val value = useCluster!!.apply(connection)
+                RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
+                result.complete(value)
+            } catch (e: Exception) {
+                warning("Redis operation failed: ${e.message}")
+                RedisMonitor.recordCommand(false)
+                result.complete(null)
+            } finally {
+                asyncPool.release(connection)
+            }
         }
+        return result
     }
 }
