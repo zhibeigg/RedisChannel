@@ -6,7 +6,7 @@
 <img src="https://img.shields.io/badge/Kotlin-2.1+-purple?style=flat-square&logo=kotlin" alt="Kotlin">
 <img src="https://img.shields.io/badge/Redis-6.0+-red?style=flat-square&logo=redis" alt="Redis">
 <img src="https://img.shields.io/badge/License-CC0%201.0-blue?style=flat-square" alt="License">
-<img src="https://img.shields.io/badge/Version-1.14.8-orange?style=flat-square" alt="Version">
+<img src="https://img.shields.io/badge/Version-1.14.10-orange?style=flat-square" alt="Version">
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zhibeigg/RedisChannel)
 
@@ -18,6 +18,7 @@
 [功能特性](#-功能特性) •
 [配置指南](#-配置指南) •
 [API 文档](#-api-文档) •
+[事件系统](#-事件系统) •
 [开发指南](#-开发指南)
 
 </div>
@@ -87,6 +88,7 @@
   - ✅ 自动重连机制
   - ✅ 集群拓扑自动刷新
   - ✅ 游戏内命令管理
+  - ✅ 事件系统 (ClientStartEvent/ClientStopEvent)
 
 ---
 
@@ -266,7 +268,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:1.14.8:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:1.14.10:api")
 }
 ```
 
@@ -472,6 +474,108 @@ RedisChannelPlugin.api.useAsyncCommands { it.get("key") }
 
 ---
 
+## 📡 事件系统
+
+RedisChannel 提供了事件系统，允许其他插件监听 Redis 连接的生命周期事件。
+
+### 可用事件
+
+| 事件 | 触发时机 | 用途 |
+|------|----------|------|
+| `ClientStartEvent` | Redis 连接建立完成后 | 初始化依赖 Redis 的功能 |
+| `ClientStopEvent` | Redis 连接关闭之前 | 保存数据、清理资源 |
+
+### ClientStartEvent
+
+当 Redis 连接成功建立后触发。
+
+```kotlin
+import com.gitee.redischannel.api.events.ClientStartEvent
+import taboolib.common.platform.event.SubscribeEvent
+
+@SubscribeEvent
+fun onRedisStart(event: ClientStartEvent) {
+    // Redis 已连接，可以安全使用 API
+    val api = RedisChannelPlugin.api
+
+    // event.cluster 表示是否为集群模式
+    if (event.cluster) {
+        println("Redis 集群已连接")
+    } else {
+        println("Redis 单机已连接")
+    }
+}
+```
+
+### ClientStopEvent
+
+在 Redis 连接关闭**之前**触发，允许其他插件完成最后的 Redis 操作。
+
+```kotlin
+import com.gitee.redischannel.api.events.ClientStopEvent
+import taboolib.common.platform.event.SubscribeEvent
+
+@SubscribeEvent
+fun onRedisStop(event: ClientStopEvent) {
+    // 在 Redis 关闭前保存数据
+    saveAllPlayerData()
+
+    // 注意：事件触发后，Redis 连接将被关闭
+    // 不要在此事件之后再尝试使用 Redis API
+}
+```
+
+### 使用场景
+
+#### 场景 1：确保在 Redis 可用后初始化
+
+```kotlin
+object MyFeature {
+
+    private var initialized = false
+
+    @SubscribeEvent
+    fun onRedisReady(event: ClientStartEvent) {
+        // 从 Redis 加载配置
+        loadConfigFromRedis()
+        initialized = true
+    }
+
+    @SubscribeEvent
+    fun onRedisShutdown(event: ClientStopEvent) {
+        if (initialized) {
+            // 保存配置到 Redis
+            saveConfigToRedis()
+        }
+    }
+}
+```
+
+#### 场景 2：服务器关闭时保存玩家数据
+
+```kotlin
+@SubscribeEvent
+fun onRedisStop(event: ClientStopEvent) {
+    // 遍历所有在线玩家，保存数据
+    Bukkit.getOnlinePlayers().forEach { player ->
+        val data = playerDataCache[player.uniqueId]
+        if (data != null) {
+            RedisChannelPlugin.api.useCommands { cmd ->
+                cmd.hset("player:${player.uniqueId}", data.toMap())
+            }
+        }
+    }
+}
+```
+
+### 注意事项
+
+1. **ClientStopEvent 的时机**：此事件在连接池关闭之前触发，你仍然可以执行 Redis 操作
+2. **不要阻塞太久**：事件处理应该尽快完成，避免延迟服务器关闭
+3. **异常处理**：在事件处理中捕获异常，避免影响其他监听器
+
+---
+
 ## 🎮 游戏内命令
 
 | 命令 | 权限 | 描述 |
@@ -511,6 +615,9 @@ RedisChannel/
 │   │   ├── RedisChannelAPI.kt
 │   │   ├── RedisCommandAPI.kt
 │   │   ├── RedisPubSubAPI.kt
+│   │   ├── events/                 # 事件
+│   │   │   ├── ClientStartEvent.kt
+│   │   │   └── ClientStopEvent.kt
 │   │   └── cluster/
 │   │       ├── RedisClusterCommandAPI.kt
 │   │       └── RedisClusterPubSubAPI.kt
@@ -518,7 +625,8 @@ RedisChannel/
 │   │   ├── RedisManager.kt
 │   │   ├── ClusterRedisManager.kt
 │   │   ├── RedisChannelCommand.kt
-│   │   └── RedisConfig.kt
+│   │   ├── RedisConfig.kt
+│   │   └── RedisMonitor.kt
 │   └── util/
 │       └── File.kt
 ├── src/main/resources/
