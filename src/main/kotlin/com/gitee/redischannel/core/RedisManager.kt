@@ -4,6 +4,7 @@ import com.gitee.redischannel.RedisChannelPlugin
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.RedisCommandAPI
 import com.gitee.redischannel.api.RedisPubSubAPI
+import com.gitee.redischannel.api.events.ClientStopEvent
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.RedisClient
 import io.lettuce.core.api.StatefulRedisConnection
@@ -28,10 +29,12 @@ import taboolib.common.LifeCycle
 import taboolib.common.env.RuntimeDependencies
 import taboolib.common.env.RuntimeDependency
 import taboolib.common.platform.Awake
+import taboolib.common.platform.function.info
 import taboolib.common.platform.function.severe
 import taboolib.common.platform.function.warning
 import taboolib.platform.BukkitPlugin
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import java.util.function.Function
 
 @RuntimeDependencies(
@@ -242,17 +245,77 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
     @Awake(LifeCycle.DISABLE)
     internal fun stop() {
         if (RedisChannelPlugin.type != RedisChannelPlugin.Type.SINGLE) return
-        RedisMonitor.onDisconnected()
-        pubSubConnection.close()
-        if (enabledSlaves) {
-            masterAsyncReplicaPool.close()
-            masterReplicaPool.close()
-        } else {
-            asyncPool.close()
-            pool.close()
+
+        // 触发关闭事件，允许其他插件完成最后的 Redis 操作
+        try {
+            ClientStopEvent(false).call()
+        } catch (e: Exception) {
+            warning("触发 ClientStopEvent 时发生异常: ${e.message}")
         }
-        client.shutdown()
-        resources.shutdown()
+
+        RedisMonitor.onDisconnected()
+
+        // 关闭 PubSub 连接
+        if (::pubSubConnection.isInitialized) {
+            try {
+                pubSubConnection.close()
+            } catch (e: Exception) {
+                warning("关闭 PubSub 连接时发生异常: ${e.message}")
+            }
+        }
+
+        // 关闭连接池
+        if (enabledSlaves) {
+            if (::masterAsyncReplicaPool.isInitialized) {
+                try {
+                    masterAsyncReplicaPool.closeAsync().get(10, TimeUnit.SECONDS)
+                } catch (e: Exception) {
+                    warning("关闭主从异步连接池时发生异常: ${e.message}")
+                }
+            }
+            if (::masterReplicaPool.isInitialized) {
+                try {
+                    masterReplicaPool.close()
+                } catch (e: Exception) {
+                    warning("关闭主从同步连接池时发生异常: ${e.message}")
+                }
+            }
+        } else {
+            if (::asyncPool.isInitialized) {
+                try {
+                    asyncPool.closeAsync().get(10, TimeUnit.SECONDS)
+                } catch (e: Exception) {
+                    warning("关闭异步连接池时发生异常: ${e.message}")
+                }
+            }
+            if (::pool.isInitialized) {
+                try {
+                    pool.close()
+                } catch (e: Exception) {
+                    warning("关闭同步连接池时发生异常: ${e.message}")
+                }
+            }
+        }
+
+        // 同步关闭客户端，确保所有线程被释放
+        if (::client.isInitialized) {
+            try {
+                client.shutdown(5, 10, TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                warning("关闭 Redis 客户端时发生异常: ${e.message}")
+            }
+        }
+
+        // 同步关闭资源，确保 Netty 线程池被释放
+        if (::resources.isInitialized) {
+            try {
+                resources.shutdown(5, 10, TimeUnit.SECONDS).get(15, TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                warning("关闭 ClientResources 时发生异常: ${e.message}")
+            }
+        }
+
+        info("Redis 连接已关闭")
     }
 
     override fun <T> useCommands(block: Function<RedisCommands<String, String>, T>): T? {
