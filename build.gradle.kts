@@ -38,7 +38,6 @@ taboolib {
 
 repositories {
     mavenCentral()
-    maven("https://jfrog.mcwar.cn/artifactory/maven-releases")
 }
 
 dependencies {
@@ -82,7 +81,7 @@ configure<JavaPluginExtension> {
 publishing {
     repositories {
         maven {
-            url = uri("https://jfrog.mcwar.cn/artifactory/maven-releases")
+            url = uri("https://maven.mcwar.cn/releases")
             credentials {
                 username = publishUsername
                 password = publishPassword
