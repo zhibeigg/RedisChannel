@@ -8,10 +8,14 @@ import taboolib.common.platform.command.CommandBody
 import taboolib.common.platform.command.CommandHeader
 import taboolib.common.platform.command.mainCommand
 import taboolib.common.platform.command.subCommandExec
+import taboolib.common.platform.function.submit
 import taboolib.expansion.createHelper
+import java.util.concurrent.atomic.AtomicBoolean
 
 @CommandHeader("redis", description = "RedisChannel插件主指令", permission = "RedisChannel.Command.Main", permissionMessage = "你没有权限使用此指令")
 object RedisChannelCommand {
+
+    private val reconnecting = AtomicBoolean(false)
 
     @CommandBody
     val main = mainCommand {
@@ -20,21 +24,35 @@ object RedisChannelCommand {
 
     @CommandBody
     val reconnect = subCommandExec<ProxyCommandSender> {
-        // 先停止当前连接（如果已初始化）
-        when (RedisChannelPlugin.type) {
-            CLUSTER -> ClusterRedisManager.stop()
-            SINGLE -> RedisManager.stop()
-            null -> {} // 未初始化，跳过
+        if (!reconnecting.compareAndSet(false, true)) {
+            sender.sendMessage("§c正在重连中，请勿重复操作")
+            return@subCommandExec
         }
-        // 重新加载配置
-        RedisChannelPlugin.reloadConfig()
-        // 根据新配置决定启动哪个 Manager
-        if (RedisChannelPlugin.redis.enableCluster) {
-            ClusterRedisManager.start()
-        } else {
-            RedisManager.start()
+        sender.sendMessage("§e正在重新连接 Redis...")
+        // 异步执行 stop + start，避免阻塞主线程
+        submit(async = true) {
+            try {
+                // 先停止当前连接（如果已初始化）
+                when (RedisChannelPlugin.type) {
+                    CLUSTER -> ClusterRedisManager.stop()
+                    SINGLE -> RedisManager.stop()
+                    null -> {} // 未初始化，跳过
+                }
+                // 重新加载配置
+                RedisChannelPlugin.reloadConfig()
+                // 根据新配置决定启动哪个 Manager
+                if (RedisChannelPlugin.redis.enableCluster) {
+                    ClusterRedisManager.start()
+                } else {
+                    RedisManager.start()
+                }
+                sender.sendMessage("§aRedisChannel 重载成功")
+            } catch (e: Exception) {
+                sender.sendMessage("§cRedisChannel 重载失败: ${e.message}")
+            } finally {
+                reconnecting.set(false)
+            }
         }
-        sender.sendMessage("§aRedisChannel 重载成功")
     }
 
     @CommandBody

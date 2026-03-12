@@ -50,11 +50,11 @@ object RedisChannelPlugin : Plugin() {
 
     internal fun reloadConfig() {
         config.reload()
-        redis = RedisConfig(config.getConfigurationSection("redis")!!)
+        redis = RedisConfig(config.getConfigurationSection("redis") ?: error("配置文件缺少 redis 节点，请检查 config.yml"))
     }
 
     override fun onLoad() {
-        redis = RedisConfig(config.getConfigurationSection("redis")!!)
+        redis = RedisConfig(config.getConfigurationSection("redis") ?: error("配置文件缺少 redis 节点，请检查 config.yml"))
     }
 
     val api: RedisChannelAPI
@@ -72,10 +72,13 @@ object RedisChannelPlugin : Plugin() {
             } else {
                 RedisManager.start()
             }
-        }.whenComplete { _, _ ->
+        }.whenComplete { _, ex ->
             submit {
-                ClientStartEvent(redis.enableCluster).call()
-                initialized = true
+                // 只在连接真正成功时（type 不为 null 且无异常）才标记初始化完成
+                if (ex == null && type != null) {
+                    ClientStartEvent(redis.enableCluster).call()
+                    initialized = true
+                }
             }
         }
     }

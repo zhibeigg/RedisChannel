@@ -129,8 +129,8 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
             )
             // 连接异步
             asyncPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
-                { client.connectAsync(StringCodec.UTF8).whenComplete { v, _ ->
-                    if (redis.enableSlaves) {
+                { client.connectAsync(StringCodec.UTF8).whenComplete { v, ex ->
+                    if (ex == null && redis.enableSlaves) {
                         val slaves = redis.slaves
                         v.readFrom = slaves.readFrom
                     }
@@ -262,6 +262,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         use: Function<StatefulRedisConnection<String, String>, T>?,
         useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
     ): T? {
+        val callback = useCluster ?: error("集群模式下必须提供 useCluster 参数，而非 use")
         val connection = try {
             pool.borrowObject()
         } catch (e: Exception) {
@@ -272,7 +273,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
 
         val startTime = System.currentTimeMillis()
         return try {
-            val result = useCluster!!.apply(connection)
+            val result = callback.apply(connection)
             RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
             result
         } catch (e: Exception) {
@@ -289,6 +290,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
         use: Function<StatefulRedisConnection<String, String>, T>?,
         useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
     ): CompletableFuture<T?> {
+        val callback = useCluster ?: error("集群模式下必须提供 useCluster 参数，而非 use")
         val startTime = System.currentTimeMillis()
         val result = CompletableFuture<T?>()
 
@@ -301,7 +303,7 @@ internal object ClusterRedisManager: RedisChannelAPI, RedisClusterCommandAPI, Re
             }
 
             try {
-                val value = useCluster!!.apply(connection)
+                val value = callback.apply(connection)
                 RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
                 result.complete(value)
             } catch (e: Exception) {

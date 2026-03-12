@@ -19,8 +19,8 @@ redis:
   ioThreadPoolSize: 0
   # 任务线程数 0 代表自动识别
   computationThreadPoolSize: 0
-  # 自动重连
-  autoReconnect: false
+  # 自动重连（建议生产环境保持 true，否则断连后需手动 /redis reconnect）
+  autoReconnect: true
   # 连接激活之前是否执行 PING 命令
   pingBeforeActivateConnection: true
   # 维护事件通知（CLIENT MAINT_NOTIFICATIONS）

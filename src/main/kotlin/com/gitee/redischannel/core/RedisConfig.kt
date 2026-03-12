@@ -30,7 +30,7 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
     val ioThreadPoolSize = configurationSection.getInt("ioThreadPoolSize")
     val computationThreadPoolSize = configurationSection.getInt("computationThreadPoolSize")
 
-    val autoReconnect = configurationSection.getBoolean("autoReconnect", false)
+    val autoReconnect = configurationSection.getBoolean("autoReconnect", true)
     val pingBeforeActivateConnection = configurationSection.getBoolean("pingBeforeActivateConnection", true)
     val maintNotifications = configurationSection.getBoolean("maintNotifications", false)
 
@@ -165,8 +165,10 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
 
         val masterId = configurationSection.getString("masterId") ?: error("masterId must be set")
 
-        val nodes = configurationSection.getStringList("nodes").map {
-            Node(it.split(":")[0], it.split(":")[1].cint)
+        val nodes = configurationSection.getStringList("nodes").map { raw ->
+            val parts = raw.split(":")
+            require(parts.size == 2) { "哨兵节点格式错误: '$raw'，正确格式为 host:port" }
+            Node(parts[0], parts[1].cint)
         }
 
         class Node(val host: String, val port: Int)
@@ -222,8 +224,10 @@ class RedisConfig(val configurationSection: ConfigurationSection) {
 
                 val masterId = configurationSection.getString("masterId") ?: error("masterId must be set")
 
-                val nodes = configurationSection.getStringList("nodes").map {
-                    Node(it.split(":")[0], it.split(":")[1].cint)
+                val nodes = configurationSection.getStringList("nodes").map { raw ->
+                    val parts = raw.split(":")
+                    require(parts.size == 2) { "集群哨兵节点格式错误: '$raw'，正确格式为 host:port" }
+                    Node(parts[0], parts[1].cint)
                 }
 
                 class Node(val host: String, val port: Int)

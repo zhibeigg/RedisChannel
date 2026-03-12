@@ -208,8 +208,10 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                 )
                 // 连接异步
                 masterAsyncReplicaPool = AsyncConnectionPoolSupport.createBoundedObjectPool(
-                    { MasterReplica.connectAsync(client, StringCodec.UTF8, uri).whenComplete { v, _ ->
-                        v.readFrom = slaves.readFrom
+                    { MasterReplica.connectAsync(client, StringCodec.UTF8, uri).whenComplete { v, ex ->
+                        if (ex == null) {
+                            v.readFrom = slaves.readFrom
+                        }
                     } },
                     redis.asyncPool.poolConfig()
                 )
@@ -365,6 +367,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
         use: Function<StatefulRedisConnection<String, String>, T>?,
         useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
     ): T? {
+        val callback = use ?: error("单机模式下必须提供 use 参数，而非 useCluster")
         return if (enabledSlaves) {
             val connection = try {
                 masterReplicaPool.borrowObject()
@@ -376,7 +379,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
 
             val startTime = System.currentTimeMillis()
             try {
-                val result = use!!.apply(connection)
+                val result = callback.apply(connection)
                 RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
                 result
             } catch (e: Exception) {
@@ -397,7 +400,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
 
             val startTime = System.currentTimeMillis()
             try {
-                val result = use!!.apply(connection)
+                val result = callback.apply(connection)
                 RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
                 result
             } catch (e: Exception) {
@@ -415,6 +418,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
         use: Function<StatefulRedisConnection<String, String>, T>?,
         useCluster: Function<StatefulRedisClusterConnection<String, String>, T>?
     ): CompletableFuture<T?> {
+        val callback = use ?: error("单机模式下必须提供 use 参数，而非 useCluster")
         return if (enabledSlaves) {
             val startTime = System.currentTimeMillis()
             val result = CompletableFuture<T?>()
@@ -428,7 +432,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                 }
 
                 try {
-                    val value = use!!.apply(obj)
+                    val value = callback.apply(obj)
                     RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
                     result.complete(value)
                 } catch (e: Throwable) {
@@ -453,7 +457,7 @@ internal object RedisManager: RedisChannelAPI, RedisCommandAPI, RedisPubSubAPI {
                 }
 
                 try {
-                    val value = use!!.apply(obj)
+                    val value = callback.apply(obj)
                     RedisMonitor.recordCommand(true, System.currentTimeMillis() - startTime)
                     result.complete(value)
                 } catch (e: Throwable) {

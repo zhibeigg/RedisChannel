@@ -9,6 +9,7 @@ import taboolib.common.platform.function.warning
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.LongAdder
 
 /**
@@ -27,6 +28,7 @@ object RedisMonitor {
 
     /** 最近的延迟记录 (保留最近100条) */
     private val latencyHistory = ConcurrentLinkedDeque<Long>()
+    private val latencyHistorySize = AtomicInteger(0)
     private const val MAX_LATENCY_HISTORY = 100
 
     /** 最后一次 PING 延迟 (毫秒) */
@@ -56,6 +58,7 @@ object RedisMonitor {
         commandSuccessCount.reset()
         commandFailCount.reset()
         latencyHistory.clear()
+        latencyHistorySize.set(0)
     }
 
     /**
@@ -76,8 +79,11 @@ object RedisMonitor {
             commandSuccessCount.increment()
             if (latencyMs > 0) {
                 latencyHistory.addLast(latencyMs)
-                while (latencyHistory.size > MAX_LATENCY_HISTORY) {
-                    latencyHistory.pollFirst()
+                val currentSize = latencyHistorySize.incrementAndGet()
+                if (currentSize > MAX_LATENCY_HISTORY) {
+                    if (latencyHistory.pollFirst() != null) {
+                        latencyHistorySize.decrementAndGet()
+                    }
                 }
             }
         } else {
