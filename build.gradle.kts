@@ -52,6 +52,9 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("org.mockito:mockito-core:5.11.0")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.3.1")
+    testImplementation("org.apache.commons:commons-pool2:2.12.1")
 }
 
 tasks.withType<JavaCompile> {
@@ -63,6 +66,18 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         jvmTarget.set(JvmTarget.JVM_1_8)
         freeCompilerArgs.set(listOf("-Xjvm-default=all"))
     }
+}
+
+tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
+        freeCompilerArgs.set(listOf("-Xjvm-default=all"))
+    }
+}
+
+tasks.named<JavaCompile>("compileTestJava") {
+    sourceCompatibility = "11"
+    targetCompatibility = "11"
 }
 
 tasks.withType<Jar> {
