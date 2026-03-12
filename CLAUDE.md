@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 语言设置
+
+- 始终以简体中文回复
+
+## 代码规则
+
+- 禁止把 Bukkit 主线程敏感逻辑放到异步线程中执行。
+- 数据库 与 Redis 的 I/0 必须异步处理。
+- 禁止滥用 !! ，优先使用Kotlin空安全、显式判空和结果对象。
+- 新增功能时必须同步更新默认配置、示例配置、语言文件和外部API文档。
+
 ## 项目概述
 
 RedisChannel 是一个基于 TabooLib 框架的 Bukkit/Spigot 插件，为 Minecraft 服务器提供 Redis 集成能力。底层使用 Lettuce 客户端，支持单机/集群/哨兵/主从四种部署模式。
