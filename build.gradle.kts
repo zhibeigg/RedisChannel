@@ -1,7 +1,4 @@
-import io.izzel.taboolib.gradle.Basic
-import io.izzel.taboolib.gradle.Bukkit
-import io.izzel.taboolib.gradle.CommandHelper
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import io.izzel.taboolib.gradle.*
 
 val publishUsername: String by project
 val publishPassword: String by project
@@ -11,7 +8,7 @@ plugins {
     `java-library`
     `maven-publish`
     kotlin("jvm") version "2.1.20"
-    id("io.izzel.taboolib") version "2.0.23"
+    id("io.izzel.taboolib") version "2.0.37"
 }
 
 taboolib {
@@ -27,7 +24,10 @@ taboolib {
             name("zhibei")
         }
     }
-    version { taboolib = "6.2.4-5902762" }
+    version {
+        taboolib = "6.3.0-932e79c"
+        coroutines = "1.10.1"
+    }
     relocate("org.reactivestreams", "com.gitee.redischannel.reactivestreams")
     relocate("reactor", "com.gitee.redischannel.reactor")
     relocate("org.apache.commons.pool2", "com.gitee.redischannel.commons.pool2")
@@ -62,22 +62,7 @@ tasks.withType<JavaCompile> {
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_1_8)
-        freeCompilerArgs.set(listOf("-Xjvm-default=all"))
-    }
-}
-
-tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_11)
-        freeCompilerArgs.set(listOf("-Xjvm-default=all"))
-    }
-}
-
-tasks.named<JavaCompile>("compileTestJava") {
-    sourceCompatibility = "11"
-    targetCompatibility = "11"
+    kotlinOptions.freeCompilerArgs += "-Xskip-metadata-version-check"
 }
 
 tasks.withType<Jar> {
@@ -88,9 +73,13 @@ tasks.test {
     useJUnitPlatform()
 }
 
-configure<JavaPluginExtension> {
+java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+kotlin {
+    jvmToolchain(8)
 }
 
 publishing {
