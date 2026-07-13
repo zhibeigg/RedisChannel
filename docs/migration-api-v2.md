@@ -1,13 +1,13 @@
 # RedisChannel v1 → API v2 迁移指南
 
-RedisChannel `2.14.12` 引入 API v2，并删除全部同步 Redis API。迁移的核心目标是：让调用链完整返回 `CompletionStage` 或 `Publisher`，通过异步错误通道处理失败，并明确 Bukkit 主线程边界。
+RedisChannel `2.14.12` 引入 API v2，并删除全部同步 Redis API。最终公开 API 只保留 `CompletionStage` 异步接口；原响应式公开接口也已删除，因为相关类型跨插件重定位时 ABI 不安全。迁移的核心目标是：让调用链完整返回 `CompletionStage`，通过异步错误通道处理失败，并明确 Bukkit 主线程边界。
 
 ## 迁移清单
 
 1. 将依赖版本更新到 `2.14.12`，仓库改为当前发布仓库。
 2. 删除所有同步 API 调用。
-3. 将旧 `useAsyncCommands`/`useReactiveCommands` 等方法改为 API v2 方法名。
-4. 不再用 `null` 表示 Redis 错误；异常从 Stage/Publisher 传播。
+3. 将旧命令方法改为 API v2 的四个 `CompletionStage` 方法；旧响应式调用也必须改写为异步 Stage 链。
+4. 不再用 `null` 表示 Redis 错误；异常通过 Stage 的 exceptional completion 传播。
 5. 保留 Redis `GET` 的合法 `null` 结果语义。
 6. 移除 `get()`、`join()`、阻塞等待、休眠和同步锁桥接。
 7. 在异步回调访问 Bukkit API 前切回主线程。
@@ -44,14 +44,14 @@ dependencies {
 
 | v1 | v2 |
 |---|---|
-| `useCommands { ... }` | 已删除；改为 `executeAsync(Function { ... })` 或 `executeReactive(...)` |
+| `useCommands { ... }` | 已删除；改为 `executeAsync(Function { ... })` |
 | `useAsyncCommands { ... }` | `executeAsync(Function { ... })` |
-| `useReactiveCommands { ... }` | `executeReactive(Function { ... })` |
+| 旧响应式命令方法 | 已删除；改为 `executeAsync(Function { ... })` 并组合 Stage |
 | 集群 `useCommands` / `useAsyncCommands` | `executeClusterAsync(Function { ... })` |
-| 集群 `useReactiveCommands` | `executeClusterReactive(Function { ... })` |
+| 旧集群响应式命令方法 | 已删除；改为 `executeClusterAsync(Function { ... })` |
 | `usePubSubCommands` / `usePubSubAsyncCommands` | `executePubSubAsync(Function { ... })` |
-| `usePubSubReactiveCommands` | `executePubSubReactive(Function { ... })` |
-| 集群 Pub/Sub 旧方法 | `executeClusterPubSubAsync` / `executeClusterPubSubReactive` |
+| 旧响应式 Pub/Sub 方法 | 已删除；改为 `executePubSubAsync(Function { ... })` |
+| 集群 Pub/Sub 旧方法 | `executeClusterPubSubAsync(Function { ... })` |
 | 旧启动/停止/重连入口 | `RedisChannelPlugin.api.startAsync/stopAsync/reconnectAsync` |
 
 ## 同步 GET 迁移
@@ -163,25 +163,17 @@ RedisChannelPlugin.commandAPI().executeAsync(
 
 API v2 会在 action 返回的 Stage 结束后释放连接，因此必须返回真实命令 Stage 或组合后的完整 Stage 链。
 
-## Reactive 迁移
+## 原响应式调用迁移
 
-### v1
+最终 API v2 不再公开响应式方法。调用方必须改用 `executeAsync`，并通过 `thenApply`、`thenCompose`、`whenComplete` 等 Stage 操作符组合流程：
 
 ```kotlin
-RedisChannelPlugin.commandAPI().useReactiveCommands { commands ->
-    commands.get("key")
+RedisChannelPlugin.commandAPI().executeAsync(
+    Function { commands -> commands.get("key") }
+).whenComplete { value, error ->
+    if (error != null) handleRedisFailure(error) else handleValue(value)
 }
 ```
-
-### v2
-
-```kotlin
-val publisher = RedisChannelPlugin.commandAPI().executeReactive(
-    Function { commands -> commands.get("key") }
-)
-```
-
-v2 返回标准 `Publisher<T>`。错误通过 Reactive error signal 传播，调用方应在订阅端处理错误。
 
 ## 集群命令迁移
 
@@ -206,8 +198,6 @@ RedisChannelPlugin.clusterCommandAPI().executeClusterAsync(
     }
 }
 ```
-
-Reactive 集群命令改用 `executeClusterReactive`。
 
 ## Pub/Sub 迁移
 
@@ -236,8 +226,6 @@ RedisChannelPlugin.clusterPubSubAPI().executeClusterPubSubAsync(
     Function { commands -> commands.subscribe("cluster-events") }
 )
 ```
-
-对应 Reactive 方法分别为 `executePubSubReactive` 和 `executeClusterPubSubReactive`。
 
 ## 生命周期迁移
 
@@ -270,11 +258,11 @@ RedisChannelPlugin.api.reconnectAsync().whenComplete { snapshot, error ->
 RedisChannelPlugin.api.reconnectAsync().toCompletableFuture().join()
 ```
 
-`lifecycle()` 返回当前不可变快照，可用于检查 `state`、`mode`、`generation`、`failureMessage` 和 `initialized`。
+`lifecycle()` 返回当前不可变快照，可用于检查 `state`、`mode`、`generation`、`failureMessage` 和 `initialized`。`RedisDeploymentMode` 现在包含 `SINGLE`、`SENTINEL`、`MASTER_REPLICA`、`CLUSTER`。
 
 ## Bukkit 回调线程迁移
 
-v1 代码可能默认异步完成回调位于主线程，这在 v2 中不成立。Stage/Publisher 回调线程不保证是 Bukkit 主线程。
+v1 代码可能默认异步完成回调位于主线程，这在 v2 中不成立。Stage 回调线程不保证是 Bukkit 主线程。
 
 ### 错误写法
 
@@ -308,7 +296,7 @@ RedisChannelPlugin.commandAPI().executeAsync(
 
 ## 生命周期事件迁移
 
-`ClientStartEvent` 与 `ClientStopEvent` 在 v2 中明确保证由 Bukkit 主线程触发。
+`ClientStartEvent` 与 `ClientStopEvent` 在 v2 中明确保证由 Bukkit 主线程触发。`startAsync()` 与 `reconnectAsync()` 返回的 Future 会在 `ClientStartEvent` 主线程触发尝试结束后才完成；启动事件监听器异常只记录日志，不会把已成功启动的 Future 改为失败。
 
 ```kotlin
 @SubscribeEvent
@@ -323,7 +311,7 @@ fun onRedisStart(event: ClientStartEvent) {
 }
 ```
 
-`ClientStopEvent` 中可以发起异步 API v2 操作；生命周期协调器会在关闭宽限时间内等待已登记的在途操作，但监听器自身不得阻塞。
+`ClientStopEvent` 中可以发起异步 API v2 操作；生命周期协调器会在关闭宽限时间内等待已登记的在途操作，但监听器自身不得阻塞。即使停止事件触发失败，runtime 关闭仍会继续；事件失败或关闭失败都会使停止/重连 Future exceptional completion，两者同时失败时会合并异常。
 
 ## 配置迁移
 
@@ -364,6 +352,7 @@ redis:
 
   lifecycle:
     shutdownGracePeriod: PT10S
+    # 最小 1 秒；健康检查调度粒度为 1 秒
     healthCheckPeriod: PT5S
     statusTimeout: PT5S
 
@@ -380,11 +369,11 @@ redis:
 | `redis.language` 或旧语言位置 | 根级 `language` |
 | 无登录就绪保护或旧位置 | `bukkit.blockLoginUntilReady` |
 | 无统一生命周期配置 | `redis.lifecycle` |
-| 同步 `pool` + `asyncPool` | 统一异步 `redis.pool` |
+| 同步池与旧异步池节点 | 统一异步 `redis.pool`；旧 `redis.asyncPool` 会导致配置失败 |
 | `maintNotifications` | 删除 |
 | `maxWaitDuration`、`blockWhenExhausted`、检测/回收等同步池选项 | 删除 |
 
-不要把同步池参数复制到 v2 的 `redis.pool`。
+不要把同步池参数复制到 v2 的 `redis.pool`。`redis.asyncPool` 不再提供兼容读取；发现该节点会直接配置失败，必须先迁移为 `redis.pool`。`redis.lifecycle.healthCheckPeriod` 不得小于 1 秒，实际健康检查调度粒度为 1 秒。
 
 ## cluster0.yml 迁移
 
@@ -464,7 +453,6 @@ fun loadPlayer(playerId: UUID) {
 
 - `useCommands`
 - `useAsyncCommands`
-- `useReactiveCommands`
 - `usePubSubCommands`
 - `usePubSubAsyncCommands`
 - `join()`
@@ -475,7 +463,7 @@ fun loadPlayer(playerId: UUID) {
 
 最后确认：
 
-- 所有 Redis I/O 都返回或组合 Stage/Publisher；
+- 所有 Redis I/O 都返回或组合 Stage；
 - 所有异常路径均有处理；
 - GET 的 `null` 仅表示 key 不存在；
 - Bukkit API 访问位于主线程；

@@ -1,111 +1,64 @@
+# zh_CN / en_US
+language: zh_CN
+
+bukkit:
+  # Redis 未就绪时是否阻止玩家登录
+  blockLoginUntilReady: true
+
 redis:
-  # 地址
   host: localhost
-  # 端口
   port: 6379
-  # 密码
-  password: password
-  # ssl
-  # 开启后将证书复制到插件文件夹下
-  # 命名为 default.jks
+  # 无密码时保持为空
+  password: ''
   ssl: false
-  # 证书密码 可以为空
-  truststorePassword: password
-  # 超时时间
+  # 开启 SSL 后，将 default.jks 放入插件数据目录
+  truststorePassword: ''
   timeout: PT15S
-  # 数据库 0 - 15
   database: 0
-  # I/O线程数 0 代表自动识别
+
+  # 0 表示由 Lettuce 自动决定
   ioThreadPoolSize: 0
-  # 任务线程数 0 代表自动识别
   computationThreadPoolSize: 0
-  # 自动重连（建议生产环境保持 true，否则断连后需手动 /redis reconnect）
   autoReconnect: true
-  # 连接激活之前是否执行 PING 命令
   pingBeforeActivateConnection: true
-  # 维护事件通知（CLIENT MAINT_NOTIFICATIONS）
-  maintNotifications: false
-  # 单机哨兵模式配置
+
+  lifecycle:
+    # 等待在途异步操作完成的最长时间
+    shutdownGracePeriod: PT10S
+    healthCheckPeriod: PT5S
+    statusTimeout: PT5S
+
   sentinel:
     enable: false
-    # 主节点名称
     masterId: master
-    # 哨兵节点地址列表
     nodes:
-      - "127.0.0.1:26379"
-      - "127.0.0.2:26379"
-  # 单机主从模式配置
+      - '127.0.0.1:26379'
+      - '127.0.0.2:26379'
+      # IPv6 示例: '[::1]:26379'
+
+  # 主从读写策略，哨兵模式也可同时启用
   slaves:
     enable: false
-    # master 只从主服务读取数据
-    # masterPreferred 优先从主服务读取数据，主服务不可用时再从从服务读取
-    # upstream 同MASTER
-    # upstreamPreferred 同MASTER_PREFERRED
-    # slave/replica 只从从服务读取数据
-    # slavePreferred/replicaPreferred 优先从从服务读取数据，没有可用从服务时再从主服务读取
-    # nearest/lowestLatency 使用延迟低的读取
-    # any 可从任何节点读取
-    # anyReplica 从任何从服务读取
+    # master/masterPreferred/upstream/upstreamPreferred
+    # slave/replica/slavePreferred/replicaPreferred
+    # nearest/lowestLatency/any/anyReplica
     readFrom: nearest
-  # 集群模式配置
+
   cluster:
-    # 开启时集群节点将读取 clusters 文件夹
+    # 开启后从 plugins/RedisChannel/clusters/*.yml 读取 seed 节点
     enable: false
-    # 定期刷新集群拓扑
     enablePeriodicRefresh: false
-    # 集群拓扑刷新周期
     refreshPeriod: PT60S
-    # MOVED_REDIRECT, ASK_REDIRECT, PER SISTENT_RECONNECTS, UNKNOWN_NODE (since 5.1), and UNCOVERED_SLOT
     enableAdaptiveRefreshTrigger: []
-    # 自适应刷新触发超时
     adaptiveRefreshTriggersTimeout: PT30S
-    # 重新连接尝试（自适应拓扑刷新触发器）
     refreshTriggersReconnectAttempts: 5
-    # 动态拓扑刷新源
     dynamicRefreshSources: true
-    # 关闭过时的连接
     closeStaleConnections: true
-    # 集群重定向的限制
     maxRedirects: 5
-    # 是否校验集群节点的成员关系
     validateClusterNodeMembership: true
-  # 连接池设置
+
+  # API v2 仅使用异步连接池
   pool:
-    # 控制对象池的获取顺序：true 表示后进先出（LIFO），即优先获取最近归还的对象；false 表示先进先出（FIFO）
-    lifo: true
-    # 控制并发访问的锁机制：true 启用公平锁，减少线程饥饿；false 使用非公平锁，提高吞吐量
-    fairness: false
-    # 对象池允许的最大对象数量，超出后将阻塞或抛出异常
     maxTotal: 8
-    # 池中允许的最大空闲对象数。归还对象时，若空闲数已达 maxIdle，多余对象会被销毁
     maxIdle: 8
-    # 池中保持的最小空闲对象数。当空闲对象被回收时，至少保留 minIdle 个对象
-    minIdle: 0
-    # 创建对象时是否立即检测有效性，无效对象会被移除
-    testOnCreate: false
-    # 借出对象时是否检测有效性，无效对象会被移除并尝试重新获取
-    testOnBorrow: false
-    # 归还对象时是否检测有效性，无效对象会被销毁而非回收
-    testOnReturn: false
-    # 空闲对象是否定期检测有效性。若开启，后台线程会周期性检查并移除无效对象
-    testWhileIdle: false
-    # 获取对象时的最大等待时间 空 表示无限等待
-    maxWaitDuration: PT15S
-    # 当资源耗尽时是否阻塞等待 若为 false，直接抛出 NoSuchElementException
-    blockWhenExhausted: true
-    # 后台回收线程的运行间隔 空 表示禁用回收线程
-    timeBetweenEvictionRuns: PT30M
-    # 对象空闲时间超过此值时会被强制回收（即使空闲数未达 minIdle）
-    minEvictableIdleDuration: PT30M
-    # 对象空闲时间超过此值时会被回收，但保证池中至少保留 minIdle 个空闲对象
-    softMinEvictableIdleDuration: PT30M
-    # 每次回收线程运行时检测的对象数量。负值表示按比例检测（如 -2 检测池中一半对象）
-    numTestsPerEvictionRun: 3
-  # 异步连接池设置
-  asyncPool:
-    # 对象池允许的最大对象数量，超出后将阻塞或抛出异常
-    maxTotal: 8
-    # 池中允许的最大空闲对象数。归还对象时，若空闲数已达 maxIdle，多余对象会被销毁
-    maxIdle: 8
-    # 池中保持的最小空闲对象数。当空闲对象被回收时，至少保留 minIdle 个对象
     minIdle: 0

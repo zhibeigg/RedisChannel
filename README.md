@@ -9,7 +9,7 @@
 
 **面向 Bukkit/Spigot 的非阻塞 Redis 集成插件**
 
-支持单机、Redis Cluster、哨兵和主从部署；API v2 仅提供异步与 Reactive 接口。
+支持单机、Redis Cluster、哨兵和主从部署；API v2 仅公开基于 `CompletionStage` 的异步接口。
 
 [快速开始](#快速开始) · [配置](#配置) · [API-v2](#api-v2) · [生命周期与事件](#生命周期与事件) · [迁移指南](docs/migration-api-v2.md)
 
@@ -24,6 +24,7 @@
 | 运行时 Java | Java 8 或更高版本 |
 | 构建 JDK | JDK 17 |
 | 产物字节码 | Java 8 |
+| Kotlin 调用方编译器 | Kotlin 2.1.20 或更高版本（Java 调用方不受此限制） |
 | Lettuce | `6.8.0.RELEASE` |
 
 项目使用 JDK 17 工具链构建，并通过 Java/Kotlin 编译选项生成 Java 8 字节码，因此可以在 Minecraft 1.12.2 常见的 Java 8 环境中运行。
@@ -32,8 +33,8 @@
 
 - 单机、哨兵、主从与 Redis Cluster。
 - 基于 Lettuce `CompletionStage` 的异步命令 API。
-- 基于 Reactive Streams `Publisher` 的响应式 API。
-- 单机与集群 Pub/Sub。
+- 单机与集群异步 Pub/Sub。
+- API 边界不公开响应式类型，避免跨插件重定位造成 ABI 不安全。
 - 统一异步连接池、生命周期管理、健康检查与自动重连。
 - SSL/TLS、集群拓扑刷新和登录就绪保护。
 - `ClientStartEvent`、`ClientStopEvent` 始终在 Bukkit 主线程触发。
@@ -102,7 +103,7 @@ redis:
   lifecycle:
     # 停止或重连时等待已登记在途操作完成的最长时间
     shutdownGracePeriod: PT10S
-    # 健康检查周期
+    # 健康检查周期；最小 1 秒，调度粒度为 1 秒
     healthCheckPeriod: PT5S
     # 状态检查超时
     statusTimeout: PT5S
@@ -144,11 +145,12 @@ redis:
 - 生命周期参数统一位于 `redis.lifecycle`。
 - 连接池统一为 `redis.pool`，不再区分同步池与异步池。
 - 已删除 `maintNotifications` 和所有同步连接池选项。
-- 旧 `redis.asyncPool` 不应继续写入新配置。
+- `redis.asyncPool` 不再兼容；检测到该节点会直接配置失败，必须迁移为 `redis.pool`。
+- `redis.lifecycle.healthCheckPeriod` 最小为 1 秒，健康检查调度粒度为 1 秒。
 
 ### 集群 seed 节点
 
-启用 `redis.cluster.enable` 后，在 `plugins/RedisChannel/clusters/` 中放置节点文件。`cluster0.yml` 的 `host` 等字段位于文件根级，不要再包一层 `redis`：
+启用 `redis.cluster.enable` 后，在 `plugins/RedisChannel/clusters/` 中放置节点文件。Cluster 与 Sentinel 互斥，不能同时启用。`cluster0.yml` 的 `host` 等字段位于文件根级，不要再包一层 `redis`：
 
 ```yaml
 # plugins/RedisChannel/clusters/cluster0.yml
@@ -235,26 +237,16 @@ RedisChannelPlugin.commandAPI().executeAsync(
 
 不要在 action 中启动异步命令后返回一个无关的、已经完成的 Stage。
 
-### Reactive 命令
+### 四个 API 接口
 
-```kotlin
-import java.util.function.Function
+API v2 只公开以下 `CompletionStage` 异步方法。原响应式方法已彻底删除，因为相关类型跨插件重定位时 ABI 不安全。
 
-val publisher = RedisChannelPlugin.commandAPI().executeReactive(
-    Function { commands -> commands.get("player:uuid:name") }
-)
-
-// 使用你选择的 Reactive Streams 实现订阅 publisher。
-```
-
-### 集群与 Pub/Sub 方法名
-
-| 接口 | 异步方法 | Reactive 方法 |
-|---|---|---|
-| `RedisCommandAPI` | `executeAsync` | `executeReactive` |
-| `RedisClusterCommandAPI` | `executeClusterAsync` | `executeClusterReactive` |
-| `RedisPubSubAPI` | `executePubSubAsync` | `executePubSubReactive` |
-| `RedisClusterPubSubAPI` | `executeClusterPubSubAsync` | `executeClusterPubSubReactive` |
+| 接口 | 异步方法 |
+|---|---|
+| `RedisCommandAPI` | `executeAsync` |
+| `RedisClusterCommandAPI` | `executeClusterAsync` |
+| `RedisPubSubAPI` | `executePubSubAsync` |
+| `RedisClusterPubSubAPI` | `executeClusterPubSubAsync` |
 
 Pub/Sub 示例：
 
@@ -269,7 +261,6 @@ RedisChannelPlugin.pubSubAPI().executePubSubAsync(
 ### 错误与 null 语义
 
 - 连接不可用、连接池获取失败、命令异常和 action 抛出的异常通过返回的 `CompletionStage` 异常完成。
-- Reactive 调用通过 Publisher 的 error signal 传播异常。
 - Redis `GET` 在 key 不存在时返回 `null` 是合法的成功结果。
 - 不要再把 `null` 当作“Redis 操作失败”；应分别处理 `error` 与成功值 `null`。
 - 不要阻塞等待 Stage。使用 `thenApply`、`thenCompose`、`whenComplete` 等方式组合操作。
@@ -277,6 +268,8 @@ RedisChannelPlugin.pubSubAPI().executePubSubAsync(
 ## 生命周期与事件
 
 生命周期状态包括：`STOPPED`、`STARTING`、`RUNNING`、`RECONNECTING`、`STOPPING`、`FAILED`。
+
+部署模式 `RedisDeploymentMode` 包括：`SINGLE`、`SENTINEL`、`MASTER_REPLICA`、`CLUSTER`。
 
 ```kotlin
 val snapshot = RedisChannelPlugin.api.lifecycle()
@@ -293,7 +286,7 @@ RedisChannelPlugin.api.reconnectAsync().whenComplete { next, error ->
 }
 ```
 
-`ClientStartEvent` 与 `ClientStopEvent` **始终在 Bukkit 主线程触发**：
+`ClientStartEvent` 与 `ClientStopEvent` **始终在 Bukkit 主线程触发**。`startAsync()` 与 `reconnectAsync()` 返回的 Future 会在 `ClientStartEvent` 的主线程触发尝试结束后才完成；事件监听器抛出异常会被记录，但不会把已成功启动的 Future 改为失败：
 
 ```kotlin
 import com.gitee.redischannel.api.events.ClientStartEvent
@@ -312,10 +305,12 @@ fun onRedisStart(event: ClientStartEvent) {
 }
 ```
 
+停止时，即使 `ClientStopEvent` 触发失败也仍会继续关闭 runtime；事件失败或关闭失败都会使停止/重连 Future exceptional completion，两者同时失败时会合并异常。
+
 线程规则：
 
-1. Redis I/O 始终使用异步或 Reactive API。
-2. Stage/Publisher 的回调线程不保证是 Bukkit 主线程。
+1. Redis I/O 始终使用 `CompletionStage` 异步 API。
+2. Stage 回调线程不保证是 Bukkit 主线程。
 3. 回调中访问玩家、世界、实体、背包等 Bukkit API 时，使用你的插件调度器切回主线程。
 4. 即使在 `ClientStartEvent`/`ClientStopEvent` 中，也不要调用 `join()` 或 `get()` 阻塞主线程。
 
@@ -323,7 +318,8 @@ fun onRedisStart(event: ClientStartEvent) {
 
 | 命令 | 权限 | 描述 |
 |---|---|---|
-| `/redis` | `RedisChannel.Command.Main` | 查看帮助或状态 |
+| `/redis` | 无（仅查看帮助） | 查看命令帮助 |
+| `/redis status` | `RedisChannel.Command.Main` | 异步查看 Redis 状态 |
 | `/redis reconnect` | `RedisChannel.Command.Main` | 异步重载配置并重建连接 |
 
 ## 构建
@@ -333,7 +329,7 @@ fun onRedisStart(event: ClientStartEvent) {
 ./gradlew build -Pbuild=build/libs
 
 # 构建 API 包
-./gradlew taboolibBuildApi -PDeleteCode -Pbuild=build/libs
+./gradlew verifyApiConsumer -Pbuild=build/libs
 ```
 
 构建产物输出目录由 `-Pbuild` 指定。
@@ -346,7 +342,6 @@ fun onRedisStart(event: ClientStartEvent) {
 | TabooLib Gradle 插件 | `2.0.37` |
 | TabooLib | `6.3.0-932e79c` |
 | Lettuce | `6.8.0.RELEASE` |
-| Reactor | `3.6.6`（运行时依赖） |
 | Java Toolchain | JDK 17，目标 Java 8 |
 
 ## 许可证

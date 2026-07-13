@@ -1,282 +1,344 @@
 package com.gitee.redischannel.core
 
-import com.gitee.redischannel.RedisChannelPlugin
-import com.gitee.redischannel.RedisChannelPlugin.Type.CLUSTER
-import com.gitee.redischannel.RedisChannelPlugin.Type.SINGLE
+import com.gitee.redischannel.api.RedisDeploymentMode
+import com.gitee.redischannel.api.RedisLifecycleSnapshot
+import com.gitee.redischannel.api.RedisLifecycleState
+import com.gitee.redischannel.api.exception.RedisOperationException
+import com.gitee.redischannel.core.lifecycle.RedisLifecycleCoordinator
+import com.gitee.redischannel.core.runtime.RedisRuntime
+import com.gitee.redischannel.util.CompletionStages
 import taboolib.common.platform.Schedule
 import taboolib.common.platform.function.info
 import taboolib.common.platform.function.warning
 import java.time.Duration
 import java.time.Instant
-import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicLongArray
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.LongAdder
+import kotlin.time.toJavaDuration
 
 /**
- * Redis 连接状态监控
+ * Redis 连接状态与业务命令监控。
  */
 object RedisMonitor {
 
-    /** 连接启动时间 */
-    var startTime: Instant? = null
-        private set
-
-    /** 命令执行统计 */
-    private val commandCount = LongAdder()
-    private val commandSuccessCount = LongAdder()
-    private val commandFailCount = LongAdder()
-
-    /** 最近的延迟记录 (保留最近100条) */
-    private val latencyHistory = ConcurrentLinkedDeque<Long>()
-    private val latencyHistorySize = AtomicInteger(0)
     private const val MAX_LATENCY_HISTORY = 100
+    private val metrics = AtomicReference(MetricBucket(0))
+    private val connection = AtomicReference(ConnectionState(0, ConnectionStatus.DISCONNECTED, -1))
+    private val healthCheck = AtomicReference(HealthCheckState(0, null, 0))
 
-    /** 最后一次 PING 延迟 (毫秒) */
-    @Volatile
-    var lastPingLatency: Long = -1
-        private set
+    val lastPingLatency: Long
+        get() = connection.get().latency
 
-    /** 连接状态 */
-    @Volatile
-    var connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED
-        private set
+    val connectionStatus: ConnectionStatus
+        get() = connection.get().status
 
-    enum class ConnectionStatus(val display: String, val color: String) {
-        CONNECTED("已连接", "§a"),
-        DISCONNECTED("未连接", "§c"),
-        CONNECTING("连接中", "§e"),
-        ERROR("异常", "§4")
+    enum class ConnectionStatus(val languageKey: String, val color: String) {
+        CONNECTED("connection-status.connected", "§a"),
+        DISCONNECTED("connection-status.disconnected", "§c"),
+        CONNECTING("connection-status.connecting", "§e"),
+        ERROR("connection-status.error", "§4")
     }
 
-    /**
-     * 记录连接启动
-     */
-    internal fun onConnected() {
-        startTime = Instant.now()
-        connectionStatus = ConnectionStatus.CONNECTED
-        commandCount.reset()
-        commandSuccessCount.reset()
-        commandFailCount.reset()
-        latencyHistory.clear()
-        latencyHistorySize.set(0)
+    internal fun beginGeneration(runtime: RedisRuntime) {
+        metrics.set(MetricBucket(runtime.generation))
+        connection.set(ConnectionState(runtime.generation, ConnectionStatus.CONNECTED, -1))
+        healthCheck.set(HealthCheckState(runtime.generation, null, 0))
     }
 
-    /**
-     * 记录连接断开
-     */
-    internal fun onDisconnected() {
-        connectionStatus = ConnectionStatus.DISCONNECTED
-        startTime = null
-        lastPingLatency = -1
+    internal fun onStopped(generation: Long) {
+        updateConnection(generation, ConnectionStatus.DISCONNECTED, -1)
     }
 
-    /**
-     * 记录命令执行
-     */
-    fun recordCommand(success: Boolean, latencyMs: Long = 0) {
-        commandCount.increment()
+    internal fun onFailed(generation: Long) {
+        while (true) {
+            val current = connection.get()
+            if (current.generation > generation) return
+            if (connection.compareAndSet(current, ConnectionState(generation, ConnectionStatus.ERROR, -1))) return
+        }
+    }
+
+    fun recordBusinessCommand(generation: Long, success: Boolean, latencyMs: Long) {
+        val bucket = metrics.get()
+        if (bucket.generation != generation) return
+        bucket.commandCount.increment()
         if (success) {
-            commandSuccessCount.increment()
-            if (latencyMs > 0) {
-                latencyHistory.addLast(latencyMs)
-                val currentSize = latencyHistorySize.incrementAndGet()
-                if (currentSize > MAX_LATENCY_HISTORY) {
-                    if (latencyHistory.pollFirst() != null) {
-                        latencyHistorySize.decrementAndGet()
-                    }
-                }
-            }
+            bucket.successCount.increment()
+            bucket.recordLatency(latencyMs)
         } else {
-            commandFailCount.increment()
+            bucket.failCount.increment()
         }
     }
 
-    /**
-     * 获取监控快照
-     */
     fun getSnapshot(): MonitorSnapshot {
-        val poolStats = getPoolStats()
-        val serverInfo = getServerInfo()
-        val deploymentInfo = getDeploymentInfo()
-
-        return MonitorSnapshot(
-            status = connectionStatus,
-            mode = RedisChannelPlugin.type,
-            uptime = startTime?.let { Duration.between(it, Instant.now()) },
-            pingLatency = lastPingLatency,
-            avgLatency = if (latencyHistory.isNotEmpty()) latencyHistory.average().toLong() else -1,
-            commandCount = commandCount.sum(),
-            successCount = commandSuccessCount.sum(),
-            failCount = commandFailCount.sum(),
-            poolStats = poolStats,
-            serverInfo = serverInfo,
-            deploymentInfo = deploymentInfo
-        )
+        val context = runtimeContext()
+        return localSnapshot(context.lifecycle, context.runtime)
     }
 
-    /**
-     * 获取连接池统计
-     */
-    private fun getPoolStats(): PoolStats? {
-        return try {
-            when (RedisChannelPlugin.type) {
-                SINGLE -> {
-                    if (RedisManager.enabledSlaves) {
-                        PoolStats(
-                            active = RedisManager.masterReplicaPool.numActive,
-                            idle = RedisManager.masterReplicaPool.numIdle,
-                            maxTotal = RedisManager.masterReplicaPool.maxTotal,
-                            waiters = RedisManager.masterReplicaPool.numWaiters
-                        )
-                    } else {
-                        PoolStats(
-                            active = RedisManager.pool.numActive,
-                            idle = RedisManager.pool.numIdle,
-                            maxTotal = RedisManager.pool.maxTotal,
-                            waiters = RedisManager.pool.numWaiters
-                        )
-                    }
-                }
-                CLUSTER -> {
-                    PoolStats(
-                        active = ClusterRedisManager.pool.numActive,
-                        idle = ClusterRedisManager.pool.numIdle,
-                        maxTotal = ClusterRedisManager.pool.maxTotal,
-                        waiters = ClusterRedisManager.pool.numWaiters
-                    )
-                }
-                null -> null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    /**
-     * 获取 Redis 服务器信息
-     */
-    private fun getServerInfo(): ServerInfo? {
-        if (connectionStatus != ConnectionStatus.CONNECTED) return null
-
-        return try {
-            when (RedisChannelPlugin.type) {
-                SINGLE -> {
-                    RedisManager.useCommands { cmd ->
-                        parseServerInfo(cmd.info())
-                    }
-                }
-                CLUSTER -> {
-                    ClusterRedisManager.useCommands { cmd ->
-                        parseServerInfo(cmd.info())
-                    }
-                }
-                null -> null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    private fun parseServerInfo(info: String?): ServerInfo? {
-        if (info == null) return null
-        val map = info.lines()
-            .filter { it.contains(":") }
-            .associate {
-                val parts = it.split(":", limit = 2)
-                parts[0].trim() to parts.getOrElse(1) { "" }.trim()
-            }
-
-        return ServerInfo(
-            redisVersion = map["redis_version"],
-            os = map["os"],
-            uptimeSeconds = map["uptime_in_seconds"]?.toLongOrNull(),
-            connectedClients = map["connected_clients"]?.toIntOrNull(),
-            usedMemory = map["used_memory_human"],
-            usedMemoryPeak = map["used_memory_peak_human"]
-        )
-    }
-
-    /**
-     * 获取部署模式信息
-     */
-    private fun getDeploymentInfo(): DeploymentInfo? {
-        return try {
-            val redis = RedisChannelPlugin.redis
-
-            when (RedisChannelPlugin.type) {
-                SINGLE -> {
-                    val isSentinel = redis.enableSentinel
-                    val isSlaves = redis.enableSlaves
-
-                    DeploymentInfo(
-                        isSentinel = isSentinel,
-                        sentinelMasterId = if (isSentinel) redis.sentinel.masterId else null,
-                        sentinelNodes = if (isSentinel) redis.sentinel.nodes.map { "${it.host}:${it.port}" } else null,
-                        isSlaves = isSlaves,
-                        readFrom = if (isSlaves) redis.slaves.readFrom::class.simpleName else null,
-                        isCluster = false,
-                        clusterNodeCount = null
-                    )
-                }
-                CLUSTER -> {
-                    val isSlaves = redis.enableSlaves
-
-                    DeploymentInfo(
-                        isSentinel = false,
-                        sentinelMasterId = null,
-                        sentinelNodes = null,
-                        isSlaves = isSlaves,
-                        readFrom = if (isSlaves) redis.slaves.readFrom::class.simpleName else null,
-                        isCluster = true,
-                        clusterNodeCount = redis.cluster.nodes.size
-                    )
-                }
-                null -> null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    /**
-     * 定时健康检查
-     */
-    @Schedule(period = 100, async = true)
-    fun healthCheck() {
-        if (RedisChannelPlugin.type == null || connectionStatus == ConnectionStatus.DISCONNECTED) return
-
-        try {
-            val start = System.currentTimeMillis()
-            val pong = when (RedisChannelPlugin.type) {
-                SINGLE -> RedisManager.useCommands { it.ping() }
-                CLUSTER -> ClusterRedisManager.useCommands { it.ping() }
-                else -> return
-            }
-            val latency = System.currentTimeMillis() - start
-
-            if (pong == "PONG") {
-                lastPingLatency = latency
-                if (connectionStatus != ConnectionStatus.CONNECTED) {
-                    connectionStatus = ConnectionStatus.CONNECTED
-                    info("Redis 连接已恢复")
-                }
+    fun statusAsync(): CompletableFuture<MonitorSnapshot> {
+        val context = runtimeContext()
+        val runtime = context.runtime
+            ?: return CompletableFuture.completedFuture(localSnapshot(context.lifecycle, null))
+        val timeout = runtime.config.lifecycle.statusTimeout.toJavaDuration()
+        val ping = remoteValue(timeout, "Redis PING 超时") { runtime.pingAsync() }
+        return ping.thenCompose { pingResult ->
+            if (pingResult.error != null) {
+                CompletableFuture.completedFuture(pingResult to RemoteValue<String>(null, null))
             } else {
-                connectionStatus = ConnectionStatus.ERROR
+                remoteValue(timeout, "Redis INFO 超时") { runtime.serverInfoAsync() }
+                    .thenApply { infoResult -> pingResult to infoResult }
             }
-        } catch (e: Exception) {
-            if (connectionStatus == ConnectionStatus.CONNECTED) {
-                connectionStatus = ConnectionStatus.ERROR
-                warning("Redis 健康检查失败: ${e.message}")
+        }.thenApply { results ->
+            val pingResult = results.first
+            val infoResult = results.second
+            val current = runtimeContext()
+            if (current.runtime !== runtime) {
+                return@thenApply localSnapshot(current.lifecycle, current.runtime)
+            }
+            if (pingResult.error == null) {
+                updateConnection(runtime.generation, ConnectionStatus.CONNECTED, pingResult.value ?: -1)
+            } else if (!isLocalPoolFailure(pingResult.error)) {
+                updateConnection(runtime.generation, ConnectionStatus.ERROR, -1)
+            }
+            val base = localSnapshot(current.lifecycle, current.runtime)
+            base.copy(
+                pingLatency = pingResult.value ?: base.pingLatency,
+                serverInfo = infoResult.value?.let(::parseServerInfo),
+                remoteError = pingResult.error?.message ?: infoResult.error?.message
+            )
+        }
+    }
+
+    private fun runtimeContext(): RuntimeContext {
+        while (true) {
+            val before = RedisLifecycleCoordinator.lifecycle()
+            val runtime = RedisLifecycleCoordinator.runtime()
+            val after = RedisLifecycleCoordinator.lifecycle()
+            if (before === after &&
+                (after.state != RedisLifecycleState.RUNNING || runtime?.generation == after.generation)) {
+                return RuntimeContext(after, runtime)
             }
         }
     }
 
-    /**
-     * 监控数据快照
-     */
+    private fun <T> remoteValue(
+        timeout: Duration,
+        message: String,
+        supplier: () -> CompletionStage<T>
+    ): CompletableFuture<RemoteValue<T>> {
+        val stage = try {
+            supplier()
+        } catch (error: Throwable) {
+            return CompletableFuture.completedFuture(RemoteValue(null, CompletionStages.unwrap(error)))
+        }
+        val timed = try {
+            CompletionStages.withTimeout(stage, timeout, message)
+        } catch (error: Throwable) {
+            return CompletableFuture.completedFuture(RemoteValue(null, CompletionStages.unwrap(error)))
+        }
+        return timed.handle { value, error -> RemoteValue(value, error?.let(CompletionStages::unwrap)) }
+    }
+
+    private fun localSnapshot(lifecycle: RedisLifecycleSnapshot, runtime: RedisRuntime?): MonitorSnapshot {
+        val bucket = metrics.get()
+        val currentConnection = connection.get()
+        return MonitorSnapshot(
+            status = lifecycleStatus(lifecycle, currentConnection),
+            lifecycleState = lifecycle.state,
+            mode = lifecycle.mode,
+            uptime = lifecycle.startedAt?.let { Duration.between(it, Instant.now()) },
+            pingLatency = currentConnection.latency,
+            avgLatency = bucket.averageLatency(),
+            commandCount = bucket.commandCount.sum(),
+            successCount = bucket.successCount.sum(),
+            failCount = bucket.failCount.sum(),
+            poolStats = runtime?.poolStats(),
+            serverInfo = null,
+            deploymentInfo = runtime?.let(::deploymentInfo),
+            remoteError = lifecycle.failureMessage
+        )
+    }
+
+    private fun lifecycleStatus(
+        lifecycle: RedisLifecycleSnapshot,
+        currentConnection: ConnectionState
+    ): ConnectionStatus {
+        return when (lifecycle.state) {
+            RedisLifecycleState.RUNNING -> {
+                if (currentConnection.generation == lifecycle.generation) currentConnection.status
+                else ConnectionStatus.CONNECTING
+            }
+            RedisLifecycleState.STARTING, RedisLifecycleState.RECONNECTING, RedisLifecycleState.STOPPING -> ConnectionStatus.CONNECTING
+            RedisLifecycleState.FAILED -> ConnectionStatus.ERROR
+            RedisLifecycleState.STOPPED -> ConnectionStatus.DISCONNECTED
+        }
+    }
+
+    private fun deploymentInfo(runtime: RedisRuntime): DeploymentInfo {
+        val config = runtime.config
+        return DeploymentInfo(
+            isSentinel = config.enableSentinel,
+            sentinelMasterId = config.sentinel?.masterId,
+            sentinelNodes = config.sentinel?.nodes?.map { "${it.host}:${it.port}" },
+            isSlaves = config.enableSlaves,
+            readFrom = config.slaves?.readFrom?.toString(),
+            isCluster = runtime.mode == RedisDeploymentMode.CLUSTER,
+            clusterNodeCount = config.cluster?.nodes?.size
+        )
+    }
+
+    internal fun parseServerInfo(raw: String?): ServerInfo? {
+        if (raw == null) return null
+        val values = raw.lineSequence()
+            .filter { ':' in it }
+            .associate { line ->
+                val split = line.split(':', limit = 2)
+                split[0].trim() to split.getOrElse(1) { "" }.trim()
+            }
+        return ServerInfo(
+            redisVersion = values["redis_version"],
+            os = values["os"],
+            uptimeSeconds = values["uptime_in_seconds"]?.toLongOrNull(),
+            connectedClients = values["connected_clients"]?.toIntOrNull(),
+            usedMemory = values["used_memory_human"],
+            usedMemoryPeak = values["used_memory_peak_human"]
+        )
+    }
+
+    @Schedule(period = 20, async = true)
+    fun healthCheck() {
+        val context = runtimeContext()
+        val runtime = context.runtime ?: return
+        if (context.lifecycle.state != RedisLifecycleState.RUNNING) return
+        val now = System.nanoTime()
+        val token = Any()
+        while (true) {
+            val current = healthCheck.get()
+            if (current.generation != runtime.generation || current.token != null) return
+            if (current.nextCheckNanos != 0L && now - current.nextCheckNanos < 0) return
+            val next = HealthCheckState(
+                generation = runtime.generation,
+                token = token,
+                nextCheckNanos = now + runtime.config.lifecycle.healthCheckPeriodNanos
+            )
+            if (healthCheck.compareAndSet(current, next)) break
+        }
+        val pingStage = try {
+            runtime.pingAsync()
+        } catch (error: Throwable) {
+            clearHealthCheck(runtime.generation, token)
+            handleHealthResult(runtime, null, error)
+            return
+        }
+        pingStage.whenComplete { _, _ -> clearHealthCheck(runtime.generation, token) }
+        val timed = try {
+            CompletionStages.withTimeout(
+                pingStage,
+                runtime.config.lifecycle.statusTimeout.toJavaDuration(),
+                "Redis 健康检查超时"
+            )
+        } catch (error: Throwable) {
+            CompletionStages.failed<Long>(error)
+        }
+        timed.whenComplete { latency, error -> handleHealthResult(runtime, latency, error) }
+    }
+
+    private fun clearHealthCheck(generation: Long, token: Any) {
+        while (true) {
+            val current = healthCheck.get()
+            if (current.generation != generation || current.token !== token) return
+            if (healthCheck.compareAndSet(current, current.copy(token = null))) return
+        }
+    }
+
+    private fun handleHealthResult(runtime: RedisRuntime, latency: Long?, error: Throwable?) {
+        val context = runtimeContext()
+        if (context.runtime !== runtime || context.lifecycle.state != RedisLifecycleState.RUNNING) return
+        if (error == null) {
+            val previous = updateConnection(runtime.generation, ConnectionStatus.CONNECTED, latency ?: -1)
+            if (previous != null && previous != ConnectionStatus.CONNECTED) info("Redis 连接已恢复")
+            return
+        }
+        val failure = CompletionStages.unwrap(error)
+        if (!isLocalPoolFailure(failure)) {
+            val previous = updateConnection(runtime.generation, ConnectionStatus.ERROR, -1)
+            if (previous == ConnectionStatus.CONNECTED) {
+                warning("Redis 健康检查失败: ${failure.message}")
+            }
+        }
+    }
+
+    private fun updateConnection(
+        generation: Long,
+        status: ConnectionStatus,
+        latency: Long?
+    ): ConnectionStatus? {
+        while (true) {
+            val current = connection.get()
+            if (current.generation != generation) return null
+            val next = ConnectionState(generation, status, latency ?: current.latency)
+            if (connection.compareAndSet(current, next)) return current.status
+        }
+    }
+
+    private fun isLocalPoolFailure(error: Throwable): Boolean {
+        return error is RedisOperationException && error.message?.contains("获取 Redis 异步连接") == true
+    }
+
+    private data class ConnectionState(
+        val generation: Long,
+        val status: ConnectionStatus,
+        val latency: Long
+    )
+
+    private data class HealthCheckState(
+        val generation: Long,
+        val token: Any?,
+        val nextCheckNanos: Long
+    )
+
+    private data class RuntimeContext(
+        val lifecycle: RedisLifecycleSnapshot,
+        val runtime: RedisRuntime?
+    )
+
+    private class MetricBucket(val generation: Long) {
+        val commandCount = LongAdder()
+        val successCount = LongAdder()
+        val failCount = LongAdder()
+        private val latencies = AtomicLongArray(MAX_LATENCY_HISTORY)
+        private val cursor = AtomicLong(0)
+        private val count = AtomicInteger(0)
+
+        fun recordLatency(value: Long) {
+            if (value < 0) return
+            val position = cursor.getAndIncrement()
+            latencies.set((position % MAX_LATENCY_HISTORY).toInt(), value)
+            while (true) {
+                val current = count.get()
+                if (current >= MAX_LATENCY_HISTORY || count.compareAndSet(current, current + 1)) break
+            }
+        }
+
+        fun averageLatency(): Long {
+            val size = count.get()
+            if (size == 0) return -1
+            var total = 0L
+            for (index in 0 until size) total += latencies.get(index)
+            return total / size
+        }
+    }
+
+    private data class RemoteValue<T>(val value: T?, val error: Throwable?)
+
     data class MonitorSnapshot(
         val status: ConnectionStatus,
-        val mode: RedisChannelPlugin.Type?,
+        val lifecycleState: RedisLifecycleState,
+        val mode: RedisDeploymentMode?,
         val uptime: Duration?,
         val pingLatency: Long,
         val avgLatency: Long,
@@ -285,15 +347,13 @@ object RedisMonitor {
         val failCount: Long,
         val poolStats: PoolStats?,
         val serverInfo: ServerInfo?,
-        val deploymentInfo: DeploymentInfo?
+        val deploymentInfo: DeploymentInfo?,
+        val remoteError: String?
     ) {
         val successRate: Double
-            get() = if (commandCount > 0) (successCount.toDouble() / commandCount * 100) else 100.0
+            get() = if (commandCount > 0) successCount.toDouble() / commandCount * 100 else 100.0
     }
 
-    /**
-     * 连接池统计
-     */
     data class PoolStats(
         val active: Int,
         val idle: Int,
@@ -301,12 +361,9 @@ object RedisMonitor {
         val waiters: Int
     ) {
         val utilization: Double
-            get() = if (maxTotal > 0) (active.toDouble() / maxTotal * 100) else 0.0
+            get() = if (maxTotal > 0) active.toDouble() / maxTotal * 100 else 0.0
     }
 
-    /**
-     * Redis 服务器信息
-     */
     data class ServerInfo(
         val redisVersion: String?,
         val os: String?,
@@ -316,9 +373,6 @@ object RedisMonitor {
         val usedMemoryPeak: String?
     )
 
-    /**
-     * 部署模式信息
-     */
     data class DeploymentInfo(
         val isSentinel: Boolean,
         val sentinelMasterId: String? = null,

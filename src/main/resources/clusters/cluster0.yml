@@ -1,22 +1,8 @@
-redis:
-  # 地址
-  host: localhost
-  # 端口
-  port: 6379
-  # 密码
-  password: password
-  # ssl
-  ssl: false
-  # 超时时间
-  timeout: P15S
-  # 数据库 0 - 15
-  database: 0
-  # 哨兵模式配置
-  sentinel:
-    enable: false
-    # 主节点名称
-    masterId: master
-    # 哨兵节点地址列表
-    nodes:
-      - "127.0.0.1:26379"
-      - "127.0.0.2:26379"
+# Redis Cluster seed 节点。每个 yml 文件代表一个节点。
+host: localhost
+port: 6379
+password: ''
+ssl: false
+timeout: PT15S
+# Redis Cluster 仅支持 database 0
+database: 0

@@ -3,11 +3,13 @@ name: Build
 on:
   push:
     branches: [ "master" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "master" ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'zulu'
@@ -24,14 +26,42 @@ jobs:
       - name: Grant execute permission to gradlew
         run: chmod +x gradlew
 
-      - name: Build project with Gradle
-        run: ./gradlew taboolibBuildApi -Pbuild=./build -PpublishUsername=${{ secrets.PUBLISH_USERNAME }} -PpublishPassword=${{ secrets.PUBLISH_PASSWORD }}
+      - name: Run tests
+        run: ./gradlew test -Pbuild=./build
 
-      - name: Build project with Gradle
-        run: ./gradlew build publish -Pbuild=./build -PpublishUsername=${{ secrets.PUBLISH_USERNAME }} -PpublishPassword=${{ secrets.PUBLISH_PASSWORD }}
+      - name: Build and verify API artifact
+        run: ./gradlew verifyApiConsumer -Pbuild=./build
 
-      - name: Upload a Build Artifact
+      - name: Build production artifact
+        run: ./gradlew build --rerun-tasks -Pbuild=./build
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4.6.2
         with:
           name: RedisChannel
           path: build/*.jar
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'zulu'
+          cache: 'gradle'
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x gradlew
+
+      - name: Build and verify API artifact
+        run: ./gradlew verifyApiConsumer -Pbuild=./build
+
+      - name: Publish artifacts
+        run: ./gradlew publish -Pbuild=./build -PpublishUsername=${{ secrets.PUBLISH_USERNAME }} -PpublishPassword=${{ secrets.PUBLISH_PASSWORD }}

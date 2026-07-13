@@ -1,133 +1,49 @@
 package com.gitee.redischannel
 
-import com.gitee.redischannel.RedisChannelPlugin.Type.CLUSTER
-import com.gitee.redischannel.RedisChannelPlugin.Type.SINGLE
 import com.gitee.redischannel.api.RedisChannelAPI
 import com.gitee.redischannel.api.RedisCommandAPI
+import com.gitee.redischannel.api.RedisDeploymentMode
 import com.gitee.redischannel.api.RedisPubSubAPI
 import com.gitee.redischannel.api.cluster.RedisClusterCommandAPI
 import com.gitee.redischannel.api.cluster.RedisClusterPubSubAPI
-import com.gitee.redischannel.api.events.ClientStartEvent
-import com.gitee.redischannel.core.ClusterRedisManager
-import com.gitee.redischannel.core.RedisConfig
-import com.gitee.redischannel.core.RedisManager
-import org.bukkit.event.player.PlayerLoginEvent
-import taboolib.common.LifeCycle
-import taboolib.common.platform.Awake
-import taboolib.common.platform.Plugin
-import taboolib.common.platform.event.SubscribeEvent
-import taboolib.common.platform.function.pluginVersion
-import taboolib.common.platform.function.submit
-import taboolib.module.configuration.Config
-import taboolib.module.configuration.Configuration
-import taboolib.platform.bukkit.parallel
 
-object RedisChannelPlugin : Plugin() {
+/**
+ * RedisChannel API v2 的稳定服务入口。
+ *
+ * @since 2.14.12
+ */
+object RedisChannelPlugin {
 
-    @Config(migrate = true)
-    lateinit var config: Configuration
-
-    lateinit var redis: RedisConfig
-        private set
-
-    var type: Type? = null
-        internal set
-
-    /**
-     * Redis 客户端是否已初始化完成
-     */
-    @Volatile
-    var initialized: Boolean = false
-        private set
-
-    enum class Type {
-        CLUSTER, SINGLE;
-    }
-
-    internal fun init(type: Type) {
-        this.type = type
-    }
-
-    internal fun reloadConfig() {
-        config.reload()
-        redis = RedisConfig(config.getConfigurationSection("redis") ?: error("配置文件缺少 redis 节点，请检查 config.yml"))
-    }
-
-    override fun onLoad() {
-        redis = RedisConfig(config.getConfigurationSection("redis") ?: error("配置文件缺少 redis 节点，请检查 config.yml"))
-    }
+    private val channelApi by lazy { resolve("lifecycle") as RedisChannelAPI }
+    private val redisCommandApi by lazy { resolve("commands") as RedisCommandAPI }
+    private val redisClusterCommandApi by lazy { resolve("clusterCommands") as RedisClusterCommandAPI }
+    private val redisPubSubApi by lazy { resolve("pubSub") as RedisPubSubAPI }
+    private val redisClusterGeneralPubSubApi by lazy { resolve("clusterGeneralPubSub") as RedisPubSubAPI }
+    private val redisClusterPubSubApi by lazy { resolve("clusterPubSub") as RedisClusterPubSubAPI }
 
     val api: RedisChannelAPI
-        get() = when (type) {
-            CLUSTER -> ClusterRedisManager
-            SINGLE -> RedisManager
-            null -> error("Redis 连接未初始化")
-        }
+        get() = channelApi
 
-    @Awake(LifeCycle.INIT)
-    fun start() {
-        parallel("redis_channel") {
-            if (redis.enableCluster) {
-                ClusterRedisManager.start()
-            } else {
-                RedisManager.start()
-            }
-        }.whenComplete { _, ex ->
-            submit {
-                // 只在连接真正成功时（type 不为 null 且无异常）才标记初始化完成
-                if (ex == null && type != null) {
-                    ClientStartEvent(redis.enableCluster).call()
-                    initialized = true
-                }
-            }
-        }
-    }
+    val initialized: Boolean
+        get() = api.lifecycle().initialized
 
-    /**
-     * 获取集群命令API
-     * @throws ClassCastException 当你使用的不是集群模式时
-     * */
-    fun clusterCommandAPI(): RedisClusterCommandAPI {
-        return api as RedisClusterCommandAPI
-    }
+    fun commandAPI(): RedisCommandAPI = redisCommandApi
 
-    /**
-     * 获取命令API
-     * @throws ClassCastException 当你使用的是集群模式时
-     * */
-    fun commandAPI(): RedisCommandAPI {
-        return api as RedisCommandAPI
-    }
+    fun clusterCommandAPI(): RedisClusterCommandAPI = redisClusterCommandApi
 
-    /**
-     * 获取集群发布/订阅API
-     * @throws ClassCastException 当你使用的不是集群模式时
-     * */
-    fun clusterPubSubAPI(): RedisClusterPubSubAPI {
-        return api as RedisClusterPubSubAPI
-    }
-
-    /**
-     * 获取发布/订阅API 集群的也可以用
-     * */
     fun pubSubAPI(): RedisPubSubAPI {
-        return api as RedisPubSubAPI
-    }
-
-    override fun onEnable() {
-        println()
-        println("§9 ______     ______     _____     __     ______")
-        println("§9/\\  == \\   /\\  ___\\   /\\  __-.  /\\ \\   /\\  ___\\         §8RedisChannel §eversion§7: §e$pluginVersion")
-        println("§9\\ \\  __<   \\ \\  __\\   \\ \\ \\/\\ \\ \\ \\ \\  \\ \\___  \\        §7by. §bzhibei")
-        println("§9 \\ \\_\\ \\_\\  \\ \\_____\\  \\ \\____-  \\ \\_\\  \\/\\_____\\")
-        println("§9  \\/_/ /_/   \\/_____/   \\/____/   \\/_/   \\/_____/")
-        println()
-    }
-
-    @SubscribeEvent
-    fun onPlayerLogin(event: PlayerLoginEvent) {
-        if (!initialized) {
-            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, "§c服务器正在初始化 Redis 连接，请稍后再试")
+        return if (api.lifecycle().mode == RedisDeploymentMode.CLUSTER) {
+            redisClusterGeneralPubSubApi
+        } else {
+            redisPubSubApi
         }
+    }
+
+    fun clusterPubSubAPI(): RedisClusterPubSubAPI = redisClusterPubSubApi
+
+    private fun resolve(method: String): Any {
+        val bridge = Class.forName("com.gitee.redischannel.core.RedisApiBridge")
+        return bridge.getMethod(method).invoke(null)
+            ?: error("RedisChannel API bridge returned null for $method")
     }
 }

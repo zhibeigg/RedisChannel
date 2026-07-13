@@ -21,8 +21,8 @@
 ## Build, Test, and Development Commands
 
 - `./gradlew build -Pbuild=build/libs`: Build the production JAR.
-- `./gradlew taboolibBuildApi -PDeleteCode -Pbuild=build/libs`: Build the API JAR with implementation code stripped.
-- `./gradlew test`: Run the test suite.
+- `./gradlew verifyApiConsumer -Pbuild=build/libs`: Build the allowlisted API JAR and compile a Java 8 consumer against it.
+- `./gradlew test -Pbuild=build/libs`: Run the test suite with the required build output property.
 - `./gradlew clean`: Remove build outputs before a clean rebuild.
 
 ## API v2 Contract
@@ -32,22 +32,23 @@ API v2 removes all synchronous Redis APIs. Do not add blocking wrappers or resto
 Public entry points:
 
 - `RedisChannelPlugin.api`: `lifecycle()`, `startAsync()`, `stopAsync()`, `reconnectAsync()`.
-- `RedisChannelPlugin.commandAPI()`: `executeAsync`, `executeReactive`.
-- `RedisChannelPlugin.clusterCommandAPI()`: `executeClusterAsync`, `executeClusterReactive`.
-- `RedisChannelPlugin.pubSubAPI()`: `executePubSubAsync`, `executePubSubReactive`.
-- `RedisChannelPlugin.clusterPubSubAPI()`: `executeClusterPubSubAsync`, `executeClusterPubSubReactive`.
+- `RedisChannelPlugin.commandAPI()`: `executeAsync`.
+- `RedisChannelPlugin.clusterCommandAPI()`: `executeClusterAsync`.
+- `RedisChannelPlugin.pubSubAPI()`: `executePubSubAsync`.
+- `RedisChannelPlugin.clusterPubSubAPI()`: `executeClusterPubSubAsync`.
 
 Contract details:
 
 - Redis I/O and lifecycle changes must remain non-blocking.
-- The action's `CompletionStage` or `Publisher` represents the full operation lifetime.
-- Failures propagate through exceptional completion or the Reactive error channel.
+- The action's `CompletionStage` represents the full operation lifetime.
+- Failures propagate through exceptional completion.
+- Do not expose Reactive/Publisher types because relocated runtime types are not a stable cross-plugin ABI.
 - A `null` Redis `GET` value is a valid successful result for a missing key, not an error sentinel.
 
 ## Bukkit Threading Rules
 
 - Never execute Bukkit main-thread-sensitive logic in arbitrary Redis callbacks.
-- `CompletionStage` and Reactive callbacks are not guaranteed to run on the Bukkit main thread.
+- `CompletionStage` callbacks are not guaranteed to run on the Bukkit main thread.
 - Switch back to the Bukkit main thread before accessing players, worlds, entities, inventories or similar state.
 - `ClientStartEvent` and `ClientStopEvent` are always fired on the Bukkit main thread.
 - Event handlers must still use asynchronous Redis APIs and must not call `get()`, `join()`, sleep or otherwise block.

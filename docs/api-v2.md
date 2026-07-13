@@ -1,6 +1,6 @@
 # RedisChannel API v2
 
-RedisChannel API v2 自 `2.14.12` 起提供稳定的非阻塞外部接口。全部同步 Redis API 已删除，Redis I/O 只能通过 `CompletionStage` 或 Reactive Streams `Publisher` 执行。
+RedisChannel API v2 自 `2.14.12` 起提供稳定的非阻塞外部接口。全部同步 Redis API 已删除，Redis I/O 只能通过 `CompletionStage` 异步接口执行。公开 API 不包含响应式类型，因为这类类型跨插件重定位时 ABI 不安全。
 
 ## 兼容性
 
@@ -8,6 +8,7 @@ RedisChannel API v2 自 `2.14.12` 起提供稳定的非阻塞外部接口。全�
 - Minecraft/Bukkit：兼容 `1.12.2`
 - 运行时：Java 8 或更高版本
 - 构建：JDK 17，输出 Java 8 字节码
+- Kotlin 调用方：建议使用 Kotlin 2.1.20 或更高版本；Java 调用方不受 Kotlin metadata 版本限制
 - Lettuce：`6.8.0.RELEASE`
 
 ## 引入 API
@@ -89,9 +90,16 @@ logger.info(
 - `STOPPING`
 - `FAILED`
 
+部署模式 `RedisDeploymentMode`：
+
+- `SINGLE`
+- `SENTINEL`
+- `MASTER_REPLICA`
+- `CLUSTER`
+
 ### startAsync / stopAsync / reconnectAsync
 
-三个方法均立即返回 `CompletionStage<RedisLifecycleSnapshot>`，不得阻塞等待。
+三个方法均立即返回 `CompletionStage<RedisLifecycleSnapshot>`，不得阻塞等待。`startAsync()` 与 `reconnectAsync()` 返回的 Stage 会在 `ClientStartEvent` 的 Bukkit 主线程触发尝试结束后才完成；启动事件监听器抛出的异常会被记录，但不会使已成功启动的 Stage 异常完成。
 
 ```kotlin
 RedisChannelPlugin.api.reconnectAsync().whenComplete { snapshot, error ->
@@ -114,10 +122,6 @@ interface RedisCommandAPI {
     fun <T> executeAsync(
         action: Function<RedisAsyncCommands<String, String>, out CompletionStage<T>>
     ): CompletionStage<T>
-
-    fun <T> executeReactive(
-        action: Function<RedisReactiveCommands<String, String>, out Publisher<T>>
-    ): Publisher<T>
 }
 ```
 
@@ -172,16 +176,6 @@ RedisChannelPlugin.commandAPI().executeAsync(
 
 应直接返回 Redis 命令 Stage，或用 `thenCompose`/`thenApply` 组合完整流程。
 
-### executeReactive
-
-```kotlin
-val publisher = RedisChannelPlugin.commandAPI().executeReactive(
-    Function { commands -> commands.hgetall("profile:uuid") }
-)
-```
-
-返回值是标准 Reactive Streams `Publisher<T>`。订阅、调度与背压处理由调用方选择的 Reactive Streams 实现负责。异常通过 error signal 传播。
-
 ## RedisClusterCommandAPI
 
 适用于 Redis Cluster。
@@ -191,10 +185,6 @@ interface RedisClusterCommandAPI {
     fun <T> executeClusterAsync(
         action: Function<RedisClusterAsyncCommands<String, String>, out CompletionStage<T>>
     ): CompletionStage<T>
-
-    fun <T> executeClusterReactive(
-        action: Function<RedisClusterReactiveCommands<String, String>, out Publisher<T>>
-    ): Publisher<T>
 }
 ```
 
@@ -210,8 +200,6 @@ RedisChannelPlugin.clusterCommandAPI().executeClusterAsync(
 }
 ```
 
-Reactive 版本使用 `executeClusterReactive`，其 action 接收 `RedisClusterReactiveCommands<String, String>`。
-
 ## Pub/Sub API
 
 ### 通用 Pub/Sub
@@ -221,10 +209,6 @@ interface RedisPubSubAPI {
     fun <T> executePubSubAsync(
         action: Function<RedisPubSubAsyncCommands<String, String>, out CompletionStage<T>>
     ): CompletionStage<T>
-
-    fun <T> executePubSubReactive(
-        action: Function<RedisPubSubReactiveCommands<String, String>, out Publisher<T>>
-    ): Publisher<T>
 }
 ```
 
@@ -245,10 +229,6 @@ interface RedisClusterPubSubAPI {
     fun <T> executeClusterPubSubAsync(
         action: Function<RedisClusterPubSubAsyncCommands<String, String>, out CompletionStage<T>>
     ): CompletionStage<T>
-
-    fun <T> executeClusterPubSubReactive(
-        action: Function<RedisClusterPubSubReactiveCommands<String, String>, out Publisher<T>>
-    ): Publisher<T>
 }
 ```
 
@@ -287,10 +267,6 @@ RedisChannelPlugin.commandAPI().executeAsync(
 ```
 
 不要使用 `value == null` 判断连接失败，也不要通过返回 `null` 吞掉异常。
-
-### Reactive
-
-Reactive API 通过 Publisher 的 error signal 传播错误。调用方必须注册错误处理逻辑，避免未处理错误被丢弃或只写入全局日志。
 
 ## Bukkit 线程边界
 
@@ -354,9 +330,9 @@ fun onRedisStop(event: ClientStopEvent) {
 }
 ```
 
-- `ClientStartEvent`：runtime 完整建立并进入 `RUNNING` 后触发；首次启动及成功重连均可能触发。
-- `ClientStopEvent`：runtime 停止接受新操作前触发；禁用、热重载及重连均可能触发。
-- 停止期间会在 `shutdownGracePeriod` 内等待已登记在途操作，但 JVM 关闭时资源释放属于尽力完成。
+- `ClientStartEvent`：runtime 完整建立并进入 `RUNNING` 后触发；首次启动及成功重连均可能触发。`startAsync()`/`reconnectAsync()` 会等到主线程触发尝试结束后才完成；监听器异常会记录日志，但启动仍按成功完成。
+- `ClientStopEvent`：runtime 停止接受新操作前触发；禁用、热重载及重连均可能触发。即使事件触发失败，runtime 关闭仍会继续执行。
+- 停止期间会在 `shutdownGracePeriod` 内等待已登记在途操作。事件失败或关闭失败都会使停止/重连 Stage exceptional completion；若两者都失败，关闭异常会作为 suppressed exception 合并。JVM 关闭时资源释放属于尽力完成。
 
 ## 配置关联
 
@@ -371,6 +347,7 @@ bukkit:
 redis:
   lifecycle:
     shutdownGracePeriod: PT10S
+    # 最小 1 秒；健康检查调度粒度为 1 秒
     healthCheckPeriod: PT5S
     statusTimeout: PT5S
 
@@ -380,4 +357,4 @@ redis:
     minIdle: 0
 ```
 
-API v2 只有统一异步连接池。不要在新配置中加入同步池参数、`maintNotifications` 或独立的 `asyncPool` 节点。
+API v2 只有统一异步连接池。不要加入同步池参数或 `maintNotifications`。`redis.asyncPool` 不再兼容，检测到该节点会配置失败，必须迁移为 `redis.pool`。Cluster 与 Sentinel 互斥，不能同时启用。所有时间配置必须是有限、可安全换算的正数；`redis.lifecycle.healthCheckPeriod` 最小为 1 秒，健康检查任务以 1 秒为调度粒度。

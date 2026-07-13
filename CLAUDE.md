@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 禁止把 Bukkit 主线程敏感逻辑放到异步线程中执行。
 - 数据库与 Redis I/O 必须异步处理，不得使用 `get()`、`join()`、休眠或锁等方式阻塞等待。
-- `CompletionStage`/Reactive 回调不保证位于 Bukkit 主线程；访问玩家、世界、实体、背包等 Bukkit API 前必须切回主线程。
+- `CompletionStage` 回调不保证位于 Bukkit 主线程；访问玩家、世界、实体、背包等 Bukkit API 前必须切回主线程。
 - `ClientStartEvent` 与 `ClientStopEvent` 始终在 Bukkit 主线程触发，但事件中的 Redis I/O 仍必须使用非阻塞 API。
 - 禁止滥用 `!!`，优先使用 Kotlin 空安全、显式判空和结果对象。
 - 新增功能时必须同步更新默认配置、示例配置、语言文件和外部 API 文档。
@@ -30,7 +30,7 @@ RedisChannel `2.14.12` 是基于 TabooLib 的 Bukkit/Spigot Redis 插件，支�
 
 ```bash
 ./gradlew build -Pbuild=build/libs
-./gradlew taboolibBuildApi -PDeleteCode -Pbuild=build/libs
+./gradlew verifyApiConsumer -Pbuild=build/libs
 ./gradlew test
 ./gradlew publish -PpublishUsername=xxx -PpublishPassword=xxx -Pbuild=build/libs
 ```
@@ -39,7 +39,7 @@ RedisChannel `2.14.12` 是基于 TabooLib 的 Bukkit/Spigot Redis 插件，支�
 
 ## API v2
 
-API v2 自 `2.14.12` 起删除所有同步 Redis API，只公开异步与 Reactive 接口。
+API v2 自 `2.14.12` 起删除所有同步 Redis API，只公开基于 `CompletionStage` 的异步接口。
 
 ### 稳定入口
 
@@ -57,26 +57,23 @@ API v2 自 `2.14.12` 起删除所有同步 Redis API，只公开异步与 Reacti
 
 ```text
 RedisCommandAPI
-├── executeAsync(Function<RedisAsyncCommands<String, String>, CompletionStage<T>>)
-└── executeReactive(Function<RedisReactiveCommands<String, String>, Publisher<T>>)
+└── executeAsync(Function<RedisAsyncCommands<String, String>, CompletionStage<T>>)
 
 RedisClusterCommandAPI
-├── executeClusterAsync(...)
-└── executeClusterReactive(...)
+└── executeClusterAsync(...)
 
 RedisPubSubAPI
-├── executePubSubAsync(...)
-└── executePubSubReactive(...)
+└── executePubSubAsync(...)
 
 RedisClusterPubSubAPI
-├── executeClusterPubSubAsync(...)
-└── executeClusterPubSubReactive(...)
+└── executeClusterPubSubAsync(...)
 ```
 
 实现约束：
 
-- action 返回的 Stage/Publisher 必须代表完整 Redis 操作，资源在其终止后释放。
-- 异常通过 Stage 的 exceptional completion 或 Publisher error signal 传播，不用 `null` 表示错误。
+- action 返回的 Stage 必须代表完整 Redis 操作，资源在其终止后释放。
+- 异常通过 Stage 的 exceptional completion 传播，不用 `null` 表示错误。
+- 不公开 Reactive/Publisher 接口，避免重定位类型泄漏造成跨插件 ABI 不兼容。
 - Redis `GET` 对不存在 key 返回 `null` 是合法成功结果，不能与异常混淆。
 - 生命周期操作和 Redis I/O 均保持非阻塞。
 

@@ -1,188 +1,190 @@
 package com.gitee.redischannel.core
 
 import com.gitee.redischannel.RedisChannelPlugin
-import com.gitee.redischannel.RedisChannelPlugin.Type.CLUSTER
-import com.gitee.redischannel.RedisChannelPlugin.Type.SINGLE
+import com.gitee.redischannel.api.RedisDeploymentMode
+import com.gitee.redischannel.platform.BukkitThreadBoundary
+import com.gitee.redischannel.util.CompletionStages
 import taboolib.common.platform.ProxyCommandSender
 import taboolib.common.platform.command.CommandBody
 import taboolib.common.platform.command.CommandHeader
 import taboolib.common.platform.command.mainCommand
 import taboolib.common.platform.command.subCommandExec
-import taboolib.common.platform.function.submit
 import taboolib.expansion.createHelper
-import java.util.concurrent.atomic.AtomicBoolean
+import java.time.Duration
 
-@CommandHeader("redis", description = "RedisChannel插件主指令", permission = "RedisChannel.Command.Main", permissionMessage = "你没有权限使用此指令")
+@CommandHeader(
+    "redis",
+    description = "RedisChannel"
+)
 object RedisChannelCommand {
 
-    private val reconnecting = AtomicBoolean(false)
+    private const val COMMAND_PERMISSION = "RedisChannel.Command.Main"
 
     @CommandBody
-    val main = mainCommand {
-        createHelper()
-    }
+    val main = mainCommand { createHelper() }
 
     @CommandBody
     val reconnect = subCommandExec<ProxyCommandSender> {
-        if (!reconnecting.compareAndSet(false, true)) {
-            sender.sendMessage("§c正在重连中，请勿重复操作")
-            return@subCommandExec
-        }
-        sender.sendMessage("§e正在重新连接 Redis...")
-        // 异步执行 stop + start，避免阻塞主线程
-        submit(async = true) {
-            try {
-                // 先停止当前连接（如果已初始化）
-                when (RedisChannelPlugin.type) {
-                    CLUSTER -> ClusterRedisManager.stop()
-                    SINGLE -> RedisManager.stop()
-                    null -> {} // 未初始化，跳过
-                }
-                // 重新加载配置
-                RedisChannelPlugin.reloadConfig()
-                // 根据新配置决定启动哪个 Manager
-                if (RedisChannelPlugin.redis.enableCluster) {
-                    ClusterRedisManager.start()
+        if (!ensurePermission(sender)) return@subCommandExec
+        sender.sendMessage(RedisLanguage.text("command.reconnect.starting"))
+        RedisChannelPlugin.api.reconnectAsync().whenComplete { snapshot, error ->
+            BukkitThreadBoundary.runMain {
+                if (error == null) {
+                    sender.sendMessage(RedisLanguage.text("command.reconnect.success", "mode" to modeName(snapshot.mode)))
                 } else {
-                    RedisManager.start()
+                    sender.sendMessage(RedisLanguage.text(
+                        "command.reconnect.failed",
+                        "error" to CompletionStages.unwrap(error).message
+                    ))
                 }
-                sender.sendMessage("§aRedisChannel 重载成功")
-            } catch (e: Exception) {
-                sender.sendMessage("§cRedisChannel 重载失败: ${e.message}")
-            } finally {
-                reconnecting.set(false)
             }
         }
     }
 
     @CommandBody
     val status = subCommandExec<ProxyCommandSender> {
-        val snapshot = RedisMonitor.getSnapshot()
-
-        sender.sendMessage("§8§m─────────────────────────────────────")
-        sender.sendMessage("§b§l  Redis 监控面板")
-        sender.sendMessage("§8§m─────────────────────────────────────")
-
-        // 基本状态
-        sender.sendMessage("")
-        sender.sendMessage("§7▎ §f基本状态")
-        sender.sendMessage("  §7连接状态: ${snapshot.status.color}${snapshot.status.display}")
-        snapshot.mode?.let {
-            sender.sendMessage("  §7运行模式: §e${if (it == CLUSTER) "集群模式" else "单机模式"}")
-        }
-        snapshot.uptime?.let {
-            sender.sendMessage("  §7运行时间: §f${formatDuration(it)}")
-        }
-
-        // 部署模式详情
-        snapshot.deploymentInfo?.let { deployment ->
-            sender.sendMessage("")
-            sender.sendMessage("§7▎ §f部署模式")
-
-            when {
-                deployment.isCluster -> {
-                    sender.sendMessage("  §7架构类型: §b集群模式")
-                    deployment.clusterNodeCount?.let {
-                        sender.sendMessage("  §7集群节点: §f${it} 个")
-                    }
-                    if (deployment.isSlaves) {
-                        sender.sendMessage("  §7读写分离: §a已启用")
-                        deployment.readFrom?.let {
-                            sender.sendMessage("  §7读取策略: §f${it}")
-                        }
-                    }
-                }
-                deployment.isSentinel -> {
-                    sender.sendMessage("  §7架构类型: §d哨兵模式")
-                    deployment.sentinelMasterId?.let {
-                        sender.sendMessage("  §7Master ID: §f${it}")
-                    }
-                    deployment.sentinelNodes?.let { nodes ->
-                        sender.sendMessage("  §7哨兵节点: §f${nodes.size} 个")
-                        nodes.forEach { node ->
-                            sender.sendMessage("    §8- §7${node}")
-                        }
-                    }
-                    if (deployment.isSlaves) {
-                        deployment.readFrom?.let {
-                            sender.sendMessage("  §7读取策略: §f${it}")
-                        }
-                    }
-                }
-                deployment.isSlaves -> {
-                    sender.sendMessage("  §7架构类型: §6主从模式")
-                    deployment.readFrom?.let {
-                        sender.sendMessage("  §7读取策略: §f${it}")
-                    }
-                }
-                else -> {
-                    sender.sendMessage("  §7架构类型: §f单机模式")
+        if (!ensurePermission(sender)) return@subCommandExec
+        sender.sendMessage(RedisLanguage.text("command.status.loading"))
+        RedisMonitor.statusAsync().whenComplete { snapshot, error ->
+            BukkitThreadBoundary.runMain {
+                if (error != null) {
+                    sender.sendMessage(RedisLanguage.text(
+                        "command.status.failed",
+                        "error" to CompletionStages.unwrap(error).message
+                    ))
+                } else {
+                    renderStatus(sender, snapshot)
                 }
             }
         }
-
-        // 性能指标
-        sender.sendMessage("")
-        sender.sendMessage("§7▎ §f性能指标")
-        if (snapshot.pingLatency >= 0) {
-            val pingColor = when {
-                snapshot.pingLatency < 10 -> "§a"
-                snapshot.pingLatency < 50 -> "§e"
-                else -> "§c"
-            }
-            sender.sendMessage("  §7PING 延迟: ${pingColor}${snapshot.pingLatency}ms")
-        } else {
-            sender.sendMessage("  §7PING 延迟: §8N/A")
-        }
-        if (snapshot.avgLatency >= 0) {
-            sender.sendMessage("  §7平均延迟: §f${snapshot.avgLatency}ms")
-        }
-
-        // 命令统计
-        sender.sendMessage("")
-        sender.sendMessage("§7▎ §f命令统计")
-        sender.sendMessage("  §7总执行数: §f${snapshot.commandCount}")
-        sender.sendMessage("  §7成功/失败: §a${snapshot.successCount} §7/ §c${snapshot.failCount}")
-        val rateColor = when {
-            snapshot.successRate >= 99 -> "§a"
-            snapshot.successRate >= 95 -> "§e"
-            else -> "§c"
-        }
-        sender.sendMessage("  §7成功率: ${rateColor}${"%.2f".format(snapshot.successRate)}%")
-
-        // 连接池状态
-        snapshot.poolStats?.let { pool ->
-            sender.sendMessage("")
-            sender.sendMessage("§7▎ §f连接池状态")
-            sender.sendMessage("  §7活跃连接: §f${pool.active} §7/ §f${pool.maxTotal}")
-            sender.sendMessage("  §7空闲连接: §f${pool.idle}")
-            if (pool.waiters > 0) {
-                sender.sendMessage("  §7等待队列: §c${pool.waiters}")
-            }
-            val utilColor = when {
-                pool.utilization < 50 -> "§a"
-                pool.utilization < 80 -> "§e"
-                else -> "§c"
-            }
-            sender.sendMessage("  §7使用率: ${utilColor}${"%.1f".format(pool.utilization)}%")
-        }
-
-        // 服务器信息
-        snapshot.serverInfo?.let { server ->
-            sender.sendMessage("")
-            sender.sendMessage("§7▎ §fRedis 服务器")
-            server.redisVersion?.let { sender.sendMessage("  §7版本: §f$it") }
-            server.usedMemory?.let { sender.sendMessage("  §7内存使用: §f$it") }
-            server.connectedClients?.let { sender.sendMessage("  §7客户端数: §f$it") }
-            server.uptimeSeconds?.let {
-                sender.sendMessage("  §7服务器运行: §f${formatSeconds(it)}")
-            }
-        }
-
-        sender.sendMessage("§8§m─────────────────────────────────────")
     }
 
-    private fun formatDuration(duration: java.time.Duration): String {
+    private fun ensurePermission(sender: ProxyCommandSender): Boolean {
+        if (sender.hasPermission(COMMAND_PERMISSION)) return true
+        sender.sendMessage(RedisLanguage.text("command.no-permission"))
+        return false
+    }
+
+    internal fun renderStatus(sender: ProxyCommandSender, snapshot: RedisMonitor.MonitorSnapshot) {
+        sender.sendMessage(RedisLanguage.text("status.separator"))
+        sender.sendMessage(RedisLanguage.text("status.title"))
+        sender.sendMessage(RedisLanguage.text("status.separator"))
+        sender.sendMessage("")
+        sender.sendMessage(RedisLanguage.text("status.basic"))
+        sender.sendMessage(RedisLanguage.text("status.lifecycle", "value" to snapshot.lifecycleState))
+        sender.sendMessage(RedisLanguage.text(
+            "status.connection",
+            "color" to snapshot.status.color,
+            "value" to RedisLanguage.text(snapshot.status.languageKey)
+        ))
+        snapshot.mode?.let {
+            sender.sendMessage(RedisLanguage.text("status.mode", "value" to modeName(it)))
+        }
+        snapshot.uptime?.let {
+            sender.sendMessage(RedisLanguage.text("status.uptime", "value" to formatDuration(it)))
+        }
+        snapshot.remoteError?.let {
+            sender.sendMessage(RedisLanguage.text("status.last-error", "value" to it))
+        }
+
+        snapshot.deploymentInfo?.let { deployment ->
+            sender.sendMessage("")
+            sender.sendMessage(RedisLanguage.text("status.deployment"))
+            val architecture = when {
+                deployment.isCluster -> RedisLanguage.text("architecture.cluster")
+                deployment.isSentinel -> RedisLanguage.text("architecture.sentinel")
+                deployment.isSlaves -> RedisLanguage.text("architecture.master-replica")
+                else -> RedisLanguage.text("architecture.single")
+            }
+            sender.sendMessage(RedisLanguage.text("status.architecture", "value" to architecture))
+            deployment.clusterNodeCount?.let {
+                sender.sendMessage(RedisLanguage.text("status.cluster-nodes", "value" to it))
+            }
+            deployment.sentinelMasterId?.let {
+                sender.sendMessage(RedisLanguage.text("status.master-id", "value" to it))
+            }
+            deployment.sentinelNodes?.forEach {
+                sender.sendMessage(RedisLanguage.text("status.node", "value" to it))
+            }
+            deployment.readFrom?.let {
+                sender.sendMessage(RedisLanguage.text("status.read-from", "value" to it))
+            }
+        }
+
+        sender.sendMessage("")
+        sender.sendMessage(RedisLanguage.text("status.performance"))
+        sender.sendMessage(RedisLanguage.text(
+            "status.ping",
+            "value" to metric(snapshot.pingLatency)
+        ))
+        sender.sendMessage(RedisLanguage.text(
+            "status.average",
+            "value" to metric(snapshot.avgLatency)
+        ))
+
+        sender.sendMessage("")
+        sender.sendMessage(RedisLanguage.text("status.commands"))
+        sender.sendMessage(RedisLanguage.text("status.command-total", "value" to snapshot.commandCount))
+        sender.sendMessage(RedisLanguage.text(
+            "status.command-result",
+            "success" to snapshot.successCount,
+            "failed" to snapshot.failCount
+        ))
+        sender.sendMessage(RedisLanguage.text(
+            "status.success-rate",
+            "value" to "%.2f".format(snapshot.successRate)
+        ))
+
+        snapshot.poolStats?.let { pool ->
+            sender.sendMessage("")
+            sender.sendMessage(RedisLanguage.text("status.pool"))
+            sender.sendMessage(RedisLanguage.text(
+                "status.pool-active",
+                "active" to pool.active,
+                "max" to pool.maxTotal
+            ))
+            sender.sendMessage(RedisLanguage.text("status.pool-idle", "value" to pool.idle))
+            sender.sendMessage(RedisLanguage.text("status.pool-creating", "value" to pool.waiters))
+            sender.sendMessage(RedisLanguage.text(
+                "status.pool-utilization",
+                "value" to "%.1f".format(pool.utilization)
+            ))
+        }
+
+        snapshot.serverInfo?.let { server ->
+            sender.sendMessage("")
+            sender.sendMessage(RedisLanguage.text("status.server"))
+            server.redisVersion?.let {
+                sender.sendMessage(RedisLanguage.text("status.server-version", "value" to it))
+            }
+            server.usedMemory?.let {
+                sender.sendMessage(RedisLanguage.text("status.server-memory", "value" to it))
+            }
+            server.connectedClients?.let {
+                sender.sendMessage(RedisLanguage.text("status.server-clients", "value" to it))
+            }
+            server.uptimeSeconds?.let {
+                sender.sendMessage(RedisLanguage.text("status.server-uptime", "value" to formatSeconds(it)))
+            }
+        }
+        sender.sendMessage(RedisLanguage.text("status.separator"))
+    }
+
+    private fun modeName(mode: RedisDeploymentMode?): String {
+        return when (mode) {
+            RedisDeploymentMode.SINGLE -> RedisLanguage.text("mode.single")
+            RedisDeploymentMode.SENTINEL -> RedisLanguage.text("mode.sentinel")
+            RedisDeploymentMode.MASTER_REPLICA -> RedisLanguage.text("mode.master-replica")
+            RedisDeploymentMode.CLUSTER -> RedisLanguage.text("mode.cluster")
+            null -> RedisLanguage.text("common.unavailable")
+        }
+    }
+
+    private fun metric(value: Long): String {
+        return if (value >= 0) "§f${value}ms" else RedisLanguage.text("common.unavailable")
+    }
+
+    internal fun formatDuration(duration: Duration): String {
         val hours = duration.toHours()
         val minutes = duration.toMinutes() % 60
         val seconds = duration.seconds % 60
@@ -193,7 +195,7 @@ object RedisChannelCommand {
         }
     }
 
-    private fun formatSeconds(seconds: Long): String {
+    internal fun formatSeconds(seconds: Long): String {
         val days = seconds / 86400
         val hours = (seconds % 86400) / 3600
         val minutes = (seconds % 3600) / 60
