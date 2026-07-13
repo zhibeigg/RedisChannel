@@ -5,7 +5,7 @@
 <img src="https://img.shields.io/badge/Minecraft-1.12.2+-green?style=flat-square" alt="Minecraft">
 <img src="https://img.shields.io/badge/Java_Runtime-8+-orange?style=flat-square&logo=openjdk" alt="Java Runtime">
 <img src="https://img.shields.io/badge/Lettuce-6.8.0.RELEASE-red?style=flat-square" alt="Lettuce">
-<img src="https://img.shields.io/badge/Version-2.14.12-blue?style=flat-square" alt="Version">
+<img src="https://img.shields.io/badge/Version-2.15.12-blue?style=flat-square" alt="Version">
 
 **面向 Bukkit/Spigot 的非阻塞 Redis 集成插件**
 
@@ -19,7 +19,7 @@
 
 | 项目 | 当前值 |
 |---|---|
-| RedisChannel | `2.14.12` |
+| RedisChannel | `2.15.12` |
 | Minecraft/Bukkit | 兼容 `1.12.2` |
 | 运行时 Java | Java 8 或更高版本 |
 | 构建 JDK | JDK 17 |
@@ -178,7 +178,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:2.14.12:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.15.12:api")
 }
 ```
 
@@ -333,6 +333,23 @@ fun onRedisStart(event: ClientStartEvent) {
 ```
 
 构建产物输出目录由 `-Pbuild` 指定。
+
+## 自动发版
+
+推送与 `gradle.properties` 中版本一致的 `v*` 标签后，GitHub Actions 会依次：
+
+1. 运行测试、Java 8/API consumer 校验和生产构建。
+2. 将主产物、API 包和源码包发布到 Maven 仓库。
+3. 创建 GitHub Release，自动生成 Release Notes，并上传生产 JAR 与 API JAR。
+
+示例：
+
+```bash
+git tag v2.15.12
+git push origin v2.15.12
+```
+
+标签版本与项目版本不一致时，发布任务会直接失败。重新运行同一标签的工作流会覆盖 Release 附件，不会重复创建 Release。
 
 ## 技术栈
 

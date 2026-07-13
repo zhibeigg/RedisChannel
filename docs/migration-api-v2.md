@@ -4,7 +4,7 @@ RedisChannel `2.14.12` 引入 API v2，并删除全部同步 Redis API。最终�
 
 ## 迁移清单
 
-1. 将依赖版本更新到 `2.14.12`，仓库改为当前发布仓库。
+1. 将依赖版本更新到 `2.15.12`，仓库改为当前发布仓库。
 2. 删除所有同步 API 调用。
 3. 将旧命令方法改为 API v2 的四个 `CompletionStage` 方法；旧响应式调用也必须改写为异步 Stage 链。
 4. 不再用 `null` 表示 Redis 错误；异常通过 Stage 的 exceptional completion 传播。
@@ -36,7 +36,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:2.14.12:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.15.12:api")
 }
 ```
 

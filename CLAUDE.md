@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-RedisChannel `2.14.12` 是基于 TabooLib 的 Bukkit/Spigot Redis 插件，支持单机、Redis Cluster、哨兵和主从模式。
+RedisChannel `2.15.12` 是基于 TabooLib 的 Bukkit/Spigot Redis 插件，支持单机、Redis Cluster、哨兵和主从模式。
 
 兼容性与构建基线：
 
@@ -36,6 +36,8 @@ RedisChannel `2.14.12` 是基于 TabooLib 的 Bukkit/Spigot Redis 插件，支�
 ```
 
 构建产物目录由 `-Pbuild` 属性指定。
+
+自动发版由 `.github/workflows/build.yml` 处理。仅推送与 `gradle.properties` 版本一致的 `v*` 标签才会发布 Maven 产物并创建 GitHub Release；Release 会自动生成说明并上传生产 JAR 与 API JAR。`workflow_dispatch` 只执行验证，不直接发布正式版本。
 
 ## API v2
 
@@ -124,7 +126,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:2.14.12:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.15.12:api")
 }
 ```
 

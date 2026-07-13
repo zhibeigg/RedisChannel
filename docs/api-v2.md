@@ -4,7 +4,7 @@ RedisChannel API v2 自 `2.14.12` 起提供稳定的非阻塞外部接口。全�
 
 ## 兼容性
 
-- RedisChannel：`2.14.12`
+- RedisChannel：`2.15.12`
 - Minecraft/Bukkit：兼容 `1.12.2`
 - 运行时：Java 8 或更高版本
 - 构建：JDK 17，输出 Java 8 字节码
@@ -19,7 +19,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:2.14.12:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.15.12:api")
 }
 ```
 

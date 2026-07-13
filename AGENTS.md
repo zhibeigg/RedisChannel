@@ -6,7 +6,7 @@
 - `src/main/resources/`: Runtime templates, including `config.yml`, language files and `clusters/cluster0.yml`.
 - `docs/api-v2.md`: Public API v2 reference.
 - `docs/migration-api-v2.md`: v1 to v2 migration guide.
-- `build.gradle.kts`, `gradle.properties`: Build definition and coordinates (`2.14.12`).
+- `build.gradle.kts`, `gradle.properties`: Build definition and coordinates (`2.15.12`).
 - `build/`: Build output; the final artifact path is controlled by `-Pbuild`.
 
 ## Compatibility & Dependencies
@@ -16,7 +16,7 @@
 - Build toolchain: JDK 17, compiling Java and Kotlin to Java 8 bytecode.
 - Lettuce: `6.8.0.RELEASE`.
 - Maven repository: `https://maven.mcwar.cn/releases`.
-- API dependency: `com.gitee.redischannel:RedisChannel:2.14.12:api`.
+- API dependency: `com.gitee.redischannel:RedisChannel:2.15.12:api`.
 
 ## Build, Test, and Development Commands
 
@@ -24,6 +24,7 @@
 - `./gradlew verifyApiConsumer -Pbuild=build/libs`: Build the allowlisted API JAR and compile a Java 8 consumer against it.
 - `./gradlew test -Pbuild=build/libs`: Run the test suite with the required build output property.
 - `./gradlew clean`: Remove build outputs before a clean rebuild.
+- Push `v<version>` only when it matches `gradle.properties`; the tag workflow verifies, publishes Maven artifacts, creates a GitHub Release, and uploads production/API JARs.
 
 ## API v2 Contract
 
