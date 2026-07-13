@@ -2,492 +2,298 @@
 
 # RedisChannel
 
-<img src="https://img.shields.io/badge/Minecraft-1.12+-green?style=flat-square" alt="Minecraft">
-<img src="https://img.shields.io/badge/Kotlin-2.1+-purple?style=flat-square&logo=kotlin" alt="Kotlin">
-<img src="https://img.shields.io/badge/Redis-6.0+-red?style=flat-square&logo=redis" alt="Redis">
-<img src="https://img.shields.io/badge/License-CC0%201.0-blue?style=flat-square" alt="License">
-<img src="https://img.shields.io/badge/Version-1.14.10-orange?style=flat-square" alt="Version">
+<img src="https://img.shields.io/badge/Minecraft-1.12.2+-green?style=flat-square" alt="Minecraft">
+<img src="https://img.shields.io/badge/Java_Runtime-8+-orange?style=flat-square&logo=openjdk" alt="Java Runtime">
+<img src="https://img.shields.io/badge/Lettuce-6.8.0.RELEASE-red?style=flat-square" alt="Lettuce">
+<img src="https://img.shields.io/badge/Version-2.14.12-blue?style=flat-square" alt="Version">
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zhibeigg/RedisChannel)
+**面向 Bukkit/Spigot 的非阻塞 Redis 集成插件**
 
-**为 Minecraft 服务器打造的企业级 Redis 集成解决方案**
+支持单机、Redis Cluster、哨兵和主从部署；API v2 仅提供异步与 Reactive 接口。
 
-*基于 Lettuce 构建，支持单机/集群/哨兵/主从模式，提供同步、异步、响应式三种 API 风格*
-
-[快速开始](#-快速开始) •
-[功能特性](#-功能特性) •
-[配置指南](#-配置指南) •
-[API 文档](#-api-文档) •
-[事件系统](#-事件系统) •
-[开发指南](#-开发指南)
+[快速开始](#快速开始) · [配置](#配置) · [API-v2](#api-v2) · [生命周期与事件](#生命周期与事件) · [迁移指南](docs/migration-api-v2.md)
 
 </div>
 
----
+## 版本与兼容性
 
-## 📖 项目简介
+| 项目 | 当前值 |
+|---|---|
+| RedisChannel | `2.14.12` |
+| Minecraft/Bukkit | 兼容 `1.12.2` |
+| 运行时 Java | Java 8 或更高版本 |
+| 构建 JDK | JDK 17 |
+| 产物字节码 | Java 8 |
+| Lettuce | `6.8.0.RELEASE` |
 
-**RedisChannel** 是一个基于 [TabooLib](https://github.com/TabooLib/TabooLib) 框架开发的 Bukkit/Spigot 插件，为 Minecraft 服务器提供完整的 Redis 集成能力。它封装了 [Lettuce](https://lettuce.io/) Redis 客户端，提供简洁易用的 API，让开发者能够轻松地在插件中使用 Redis 的强大功能。
+项目使用 JDK 17 工具链构建，并通过 Java/Kotlin 编译选项生成 Java 8 字节码，因此可以在 Minecraft 1.12.2 常见的 Java 8 环境中运行。
 
-### 为什么选择 RedisChannel？
+## 功能
 
-| 特性            | 描述                      |
-|---------------|-------------------------|
-| **多模式支持**     | 单机、集群、哨兵、主从模式全覆盖        |
-| **三种 API 风格** | 同步、异步、响应式，满足不同场景需求      |
-| **连接池管理**     | 内置高效的连接池，支持精细化配置        |
-| **生产就绪**      | 自动重连、SSL/TLS 加密、完善的错误处理 |
-| **开箱即用**      | 简洁的配置文件，分钟级快速接入         |
+- 单机、哨兵、主从与 Redis Cluster。
+- 基于 Lettuce `CompletionStage` 的异步命令 API。
+- 基于 Reactive Streams `Publisher` 的响应式 API。
+- 单机与集群 Pub/Sub。
+- 统一异步连接池、生命周期管理、健康检查与自动重连。
+- SSL/TLS、集群拓扑刷新和登录就绪保护。
+- `ClientStartEvent`、`ClientStopEvent` 始终在 Bukkit 主线程触发。
 
----
+> API v2 已删除全部同步 Redis API。不要通过 `join()`、`get()`、`await`、锁或休眠把异步调用重新变成阻塞调用。
 
-## ✨ 功能特性
+## 快速开始
 
-### 核心功能
+1. 将 RedisChannel JAR 放入服务端 `plugins` 目录。
+2. 启动服务端生成默认配置。
+3. 编辑 `plugins/RedisChannel/config.yml`。
+4. 使用 `/redis reconnect` 异步重建连接，或重启服务端。
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      RedisChannel                           │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │  单机模式   │  │  集群模式   │  │  哨兵模式   │         │
-│  │  Single     │  │  Cluster    │  │  Sentinel   │         │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
-│         │                │                │                 │
-│         └────────────────┼────────────────┘                 │
-│                          ▼                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              统一 API 层 (Unified API)               │   │
-│  ├─────────────┬─────────────┬─────────────────────────┤   │
-│  │ 同步 Sync   │ 异步 Async  │ 响应式 Reactive         │   │
-│  └─────────────┴─────────────┴─────────────────────────┘   │
-│                          ▼                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │           连接池管理 (Connection Pool)               │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 功能清单
-
-- **连接模式**
-  - ✅ 单机模式 - 直连单个 Redis 实例
-  - ✅ 集群模式 - 支持 Redis Cluster 分布式部署
-  - ✅ 哨兵模式 - 高可用自动故障转移
-  - ✅ 主从模式 - 读写分离，负载均衡
-
-- **API 能力**
-  - ✅ 同步命令 - 阻塞式操作，简单直接
-  - ✅ 异步命令 - 非阻塞，返回 `Future`
-  - ✅ 响应式命令 - 基于 Project Reactor 的响应式流
-
-- **高级特性**
-  - ✅ 发布/订阅 (Pub/Sub)
-  - ✅ 连接池管理
-  - ✅ SSL/TLS 加密连接
-  - ✅ 自动重连机制
-  - ✅ 集群拓扑自动刷新
-  - ✅ 游戏内命令管理
-  - ✅ 事件系统 (ClientStartEvent/ClientStopEvent)
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-- **Minecraft 服务端**: Bukkit/Spigot 1.12+
-- **Java**: 8 或更高版本
-- **Redis**: 6.0 或更高版本（推荐）
-
-### 安装步骤
-
-1. **下载插件**
-
-   从 [Releases](https://github.com/zhibeigg/RedisChannel/releases) 页面下载最新版本的 JAR 文件
-
-2. **放置插件**
-
-   将 JAR 文件放入服务器的 `plugins` 目录
-
-3. **启动服务器**
-
-   首次启动会生成默认配置文件
-
-4. **配置连接**
-
-   编辑 `plugins/RedisChannel/config.yml` 配置 Redis 连接信息
-
-5. **重载插件**
-
-   使用 `/redis reconnect` 命令应用配置
-
-### 快速配置示例
+最小单机配置：
 
 ```yaml
+language: zh_CN
+
+bukkit:
+  blockLoginUntilReady: true
+
 redis:
   host: localhost
   port: 6379
-  password: your_password
+  password: ''
   database: 0
-```
 
----
+  lifecycle:
+    shutdownGracePeriod: PT10S
+    healthCheckPeriod: PT5S
+    statusTimeout: PT5S
 
-## 📋 配置指南
-
-### 基础配置
-
-配置文件位于 `plugins/RedisChannel/config.yml`
-
-```yaml
-redis:
-  # ==================== 基础连接 ====================
-  host: localhost           # Redis 服务器地址
-  port: 6379               # Redis 端口
-  password: password       # 连接密码（无密码留空）
-  database: 0              # 数据库编号 (0-15)
-  timeout: PT15S           # 连接超时时间
-
-  # ==================== SSL/TLS ====================
-  ssl: false               # 是否启用 SSL
-  truststorePassword: ""   # JKS 证书密码
-  # 启用 SSL 时，将证书文件命名为 default.jks 放入插件目录
-
-  # ==================== 线程池 ====================
-  ioThreadPoolSize: 0              # I/O 线程数 (0=自动)
-  computationThreadPoolSize: 0     # 计算线程数 (0=自动)
-
-  # ==================== 连接管理 ====================
-  autoReconnect: false                  # 自动重连
-  pingBeforeActivateConnection: true    # 连接前 PING 检测
-```
-
-### 哨兵模式配置
-
-```yaml
-redis:
-  sentinel:
-    enable: true
-    masterId: master              # 主节点名称
-    nodes:                        # 哨兵节点列表
-      - "127.0.0.1:26379"
-      - "127.0.0.2:26379"
-      - "127.0.0.3:26379"
-```
-
-### 主从模式配置
-
-```yaml
-redis:
-  slaves:
-    enable: true
-    readFrom: nearest    # 读取策略
-    # 可选值:
-    # - master            仅从主节点读取
-    # - masterPreferred   优先主节点
-    # - replica           仅从从节点读取
-    # - replicaPreferred  优先从节点
-    # - nearest           选择延迟最低的节点
-    # - any               任意节点
-```
-
-### 集群模式配置
-
-启用集群模式后，需要在 `plugins/RedisChannel/clusters/` 目录下创建节点配置文件。
-
-```yaml
-redis:
-  cluster:
-    enable: true
-    enablePeriodicRefresh: true       # 定期刷新拓扑
-    refreshPeriod: PT60S              # 刷新周期
-    maxRedirects: 5                   # 最大重定向次数
-    closeStaleConnections: true       # 关闭过期连接
-    dynamicRefreshSources: true       # 动态刷新源
-    validateClusterNodeMembership: true
-
-    # 自适应刷新触发器
-    enableAdaptiveRefreshTrigger:
-      - MOVED_REDIRECT
-      - ASK_REDIRECT
-    adaptiveRefreshTriggersTimeout: PT30S
-    refreshTriggersReconnectAttempts: 5
-```
-
-集群节点配置示例 (`clusters/cluster0.yml`):
-
-```yaml
-host: 127.0.0.1
-port: 7000
-```
-
-### 连接池配置
-
-```yaml
-redis:
-  # 同步连接池
   pool:
-    maxTotal: 8              # 最大连接数
-    maxIdle: 8               # 最大空闲连接
-    minIdle: 0               # 最小空闲连接
-    maxWaitDuration: PT15S   # 最大等待时间
-
-    lifo: true               # LIFO 模式
-    fairness: false          # 公平锁
-    blockWhenExhausted: true # 资源耗尽时阻塞
-
-    # 连接检测
-    testOnCreate: false
-    testOnBorrow: false
-    testOnReturn: false
-    testWhileIdle: false
-
-    # 回收策略
-    timeBetweenEvictionRuns: PT30M
-    minEvictableIdleDuration: PT30M
-    softMinEvictableIdleDuration: PT30M
-    numTestsPerEvictionRun: 3
-
-  # 异步连接池
-  asyncPool:
     maxTotal: 8
     maxIdle: 8
     minIdle: 0
 ```
 
----
+## 配置
 
-## 📚 API 文档
+当前配置结构如下：
+
+```yaml
+# zh_CN / en_US
+language: zh_CN
+
+bukkit:
+  # Redis 未进入 RUNNING 时是否阻止玩家登录
+  blockLoginUntilReady: true
+
+redis:
+  host: localhost
+  port: 6379
+  password: ''
+  ssl: false
+  truststorePassword: ''
+  timeout: PT15S
+  database: 0
+
+  # 0 表示由 Lettuce 自动决定
+  ioThreadPoolSize: 0
+  computationThreadPoolSize: 0
+  autoReconnect: true
+  pingBeforeActivateConnection: true
+
+  lifecycle:
+    # 停止或重连时等待已登记在途操作完成的最长时间
+    shutdownGracePeriod: PT10S
+    # 健康检查周期
+    healthCheckPeriod: PT5S
+    # 状态检查超时
+    statusTimeout: PT5S
+
+  sentinel:
+    enable: false
+    masterId: master
+    nodes:
+      - '127.0.0.1:26379'
+      - '127.0.0.2:26379'
+
+  slaves:
+    enable: false
+    readFrom: nearest
+
+  cluster:
+    enable: false
+    enablePeriodicRefresh: false
+    refreshPeriod: PT60S
+    enableAdaptiveRefreshTrigger: []
+    adaptiveRefreshTriggersTimeout: PT30S
+    refreshTriggersReconnectAttempts: 5
+    dynamicRefreshSources: true
+    closeStaleConnections: true
+    maxRedirects: 5
+    validateClusterNodeMembership: true
+
+  # API v2 的统一异步连接池
+  pool:
+    maxTotal: 8
+    maxIdle: 8
+    minIdle: 0
+```
+
+配置变更要点：
+
+- 语言键为根级 `language`。
+- Bukkit 登录保护位于 `bukkit.blockLoginUntilReady`。
+- 生命周期参数统一位于 `redis.lifecycle`。
+- 连接池统一为 `redis.pool`，不再区分同步池与异步池。
+- 已删除 `maintNotifications` 和所有同步连接池选项。
+- 旧 `redis.asyncPool` 不应继续写入新配置。
+
+### 集群 seed 节点
+
+启用 `redis.cluster.enable` 后，在 `plugins/RedisChannel/clusters/` 中放置节点文件。`cluster0.yml` 的 `host` 等字段位于文件根级，不要再包一层 `redis`：
+
+```yaml
+# plugins/RedisChannel/clusters/cluster0.yml
+host: localhost
+port: 6379
+password: ''
+ssl: false
+timeout: PT15S
+database: 0
+```
+
+Redis Cluster 仅支持 database `0`。每个 YAML 文件表示一个 seed 节点。
+
+## API v2
+
+完整签名、错误语义和更多示例见 [docs/api-v2.md](docs/api-v2.md)。从 v1 升级请阅读 [docs/migration-api-v2.md](docs/migration-api-v2.md)。
 
 ### Maven 依赖
 
+仓库地址和版本与当前 `build.gradle.kts`、`gradle.properties` 保持一致：
+
 ```kotlin
 repositories {
-    maven("https://jfrog.mcwar.cn/artifactory/maven-releases")
+    maven("https://maven.mcwar.cn/releases")
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:1.14.10:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.14.12:api")
 }
 ```
 
-### 获取 API 实例
+### 稳定入口
 
 ```kotlin
 import com.gitee.redischannel.RedisChannelPlugin
 
-// 获取通用 API（自动识别单机/集群模式）
-val api = RedisChannelPlugin.api
+val lifecycleAPI = RedisChannelPlugin.api
 
-// 获取特定模式的 API
-val commandAPI = RedisChannelPlugin.commandAPI()           // 单机命令 API
-val clusterCommandAPI = RedisChannelPlugin.clusterCommandAPI()  // 集群命令 API
-val pubSubAPI = RedisChannelPlugin.pubSubAPI()             // 发布订阅 API
-val clusterPubSubAPI = RedisChannelPlugin.clusterPubSubAPI()    // 集群发布订阅 API
+val commandAPI = RedisChannelPlugin.commandAPI()
+val clusterCommandAPI = RedisChannelPlugin.clusterCommandAPI()
+val pubSubAPI = RedisChannelPlugin.pubSubAPI()
+val clusterPubSubAPI = RedisChannelPlugin.clusterPubSubAPI()
 ```
 
-### 确保 Redis 连接后使用
+`RedisChannelPlugin.api` 提供：
 
-如果你的代码需要在 Redis 连接建立后才能执行，请使用 TabooLib 的 `@Parallel` 注解声明依赖：
+- `lifecycle()`：立即读取不可变生命周期快照，不执行 Redis I/O。
+- `startAsync()`：异步启动 Redis runtime。
+- `stopAsync()`：异步停止 Redis runtime。
+- `reconnectAsync()`：异步重载配置并重建 Redis runtime。
 
-```kotlin
-import taboolib.common.LifeCycle
-import taboolib.common.platform.Awake
-import taboolib.common.platform.function.Parallel
-
-@Parallel(dependOn = ["redis_channel"], runOn = LifeCycle.ENABLE)
-fun onEnable() {
-    // 此方法会在 RedisChannel 连接完成后执行
-    val api = RedisChannelPlugin.api
-    // 安全地使用 Redis API...
-}
-```
-
-> **注意**: `dependOn = ["redis_channel"]` 确保你的初始化代码在 RedisChannel 完成连接后才执行，避免出现连接尚未建立就调用 API 的问题。
-
-### 命令操作
-
-#### 同步操作
+### 普通命令
 
 ```kotlin
-// 单机模式
-val result = api.useCommands { commands ->
-    commands.set("player:uuid:name", "Steve")
-    commands.get("player:uuid:name")
-}
+import com.gitee.redischannel.RedisChannelPlugin
+import java.util.function.Function
 
-// 集群模式
-val clusterResult = clusterApi.useCommands { commands ->
-    commands.hset("player:data", "level", "10")
-    commands.hget("player:data", "level")
-}
-```
+val stage = RedisChannelPlugin.commandAPI().executeAsync(
+    Function { commands -> commands.get("player:uuid:name") }
+)
 
-#### 异步操作
-
-```kotlin
-// 异步设置值
-api.useAsyncCommands { commands ->
-    commands.set("key", "value").thenAccept { result ->
-        println("设置结果: $result")
+stage.whenComplete { value, error ->
+    if (error != null) {
+        logger.warning("读取 Redis 失败: ${error.message}")
+    } else if (value == null) {
+        // GET 不存在的 key：这是成功结果，不是连接错误
+        logger.info("玩家名称尚未缓存")
+    } else {
+        logger.info("玩家名称: $value")
     }
 }
-
-// 异步获取值
-val future = api.useAsyncCommands { commands ->
-    commands.get("key")
-}
-future.thenAccept { value ->
-    println("获取到: $value")
-}
 ```
 
-#### 响应式操作
+`executeAsync` 的 action 必须返回代表完整操作的 `CompletionStage<T>`。该 Stage 完成后连接才会归还连接池：
 
 ```kotlin
-api.useReactiveCommands { commands ->
-    commands.get("key")
-        .subscribe { value ->
-            println("响应式获取: $value")
-        }
-}
-```
-
-### 发布/订阅
-
-```kotlin
-// 订阅频道
-pubSubAPI.usePubSubCommands { commands ->
-    commands.subscribe("my-channel")
-}
-
-// 发布消息
-pubSubAPI.usePubSubAsyncCommands { commands ->
-    commands.publish("my-channel", "Hello, Redis!")
-}
-
-// 集群发布订阅
-clusterPubSubAPI.useClusterPubSubCommands { commands ->
-    commands.subscribe("cluster-channel")
-}
-```
-
-### 完整示例
-
-```kotlin
-class MyPlugin : JavaPlugin() {
-
-    override fun onEnable() {
-        // 保存玩家数据
-        savePlayerData("player-uuid", PlayerData("Steve", 100, 50))
-
-        // 读取玩家数据
-        val data = loadPlayerData("player-uuid")
-        logger.info("玩家数据: $data")
+RedisChannelPlugin.commandAPI().executeAsync(
+    Function { commands ->
+        commands.hset("player:uuid", "level", "10")
+            .thenCompose { commands.expire("player:uuid", 3600) }
     }
+)
+```
 
-    private fun savePlayerData(uuid: String, data: PlayerData) {
-        RedisChannelPlugin.commandAPI().useCommands { cmd ->
-            cmd.hset("players:$uuid", mapOf(
-                "name" to data.name,
-                "level" to data.level.toString(),
-                "coins" to data.coins.toString()
-            ))
-            cmd.expire("players:$uuid", 3600) // 1小时过期
-        }
-    }
+不要在 action 中启动异步命令后返回一个无关的、已经完成的 Stage。
 
-    private fun loadPlayerData(uuid: String): PlayerData? {
-        return RedisChannelPlugin.commandAPI().useCommands { cmd ->
-            val map = cmd.hgetall("players:$uuid")
-            if (map.isNotEmpty()) {
-                PlayerData(
-                    name = map["name"] ?: "",
-                    level = map["level"]?.toIntOrNull() ?: 0,
-                    coins = map["coins"]?.toIntOrNull() ?: 0
-                )
-            } else null
-        }
-    }
+### Reactive 命令
 
-    data class PlayerData(val name: String, val level: Int, val coins: Int)
+```kotlin
+import java.util.function.Function
+
+val publisher = RedisChannelPlugin.commandAPI().executeReactive(
+    Function { commands -> commands.get("player:uuid:name") }
+)
+
+// 使用你选择的 Reactive Streams 实现订阅 publisher。
+```
+
+### 集群与 Pub/Sub 方法名
+
+| 接口 | 异步方法 | Reactive 方法 |
+|---|---|---|
+| `RedisCommandAPI` | `executeAsync` | `executeReactive` |
+| `RedisClusterCommandAPI` | `executeClusterAsync` | `executeClusterReactive` |
+| `RedisPubSubAPI` | `executePubSubAsync` | `executePubSubReactive` |
+| `RedisClusterPubSubAPI` | `executeClusterPubSubAsync` | `executeClusterPubSubReactive` |
+
+Pub/Sub 示例：
+
+```kotlin
+RedisChannelPlugin.pubSubAPI().executePubSubAsync(
+    Function { commands -> commands.subscribe("server-events") }
+).whenComplete { _, error ->
+    if (error != null) logger.warning("订阅失败: ${error.message}")
 }
 ```
 
-### 错误处理
+### 错误与 null 语义
 
-当 Redis 连接池耗尽时，会出现以下错误：
+- 连接不可用、连接池获取失败、命令异常和 action 抛出的异常通过返回的 `CompletionStage` 异常完成。
+- Reactive 调用通过 Publisher 的 error signal 传播异常。
+- Redis `GET` 在 key 不存在时返回 `null` 是合法的成功结果。
+- 不要再把 `null` 当作“Redis 操作失败”；应分别处理 `error` 与成功值 `null`。
+- 不要阻塞等待 Stage。使用 `thenApply`、`thenCompose`、`whenComplete` 等方式组合操作。
 
-```
-[RedisChannel] Failed to acquire connection: java.util.NoSuchElementException: Pool exhausted
-```
+## 生命周期与事件
 
-此时 API 方法会返回 `null`（同步方法）或 `CompletableFuture<null>`（异步方法）。依赖此插件的其他插件应该正确处理这种情况：
-
-#### 同步操作 - 检查 null 返回值
+生命周期状态包括：`STOPPED`、`STARTING`、`RUNNING`、`RECONNECTING`、`STOPPING`、`FAILED`。
 
 ```kotlin
-// ❌ 错误示例 - 不处理 null
-val result = RedisChannelPlugin.api.useCommands { it.get("key") }
-println(result.length) // 可能 NPE
+val snapshot = RedisChannelPlugin.api.lifecycle()
+if (snapshot.initialized) {
+    // 当前状态为 RUNNING
+}
 
-// ✅ 正确示例 - 处理 null
-val result = RedisChannelPlugin.api.useCommands { it.get("key") }
-if (result == null) {
-    // 连接池耗尽或操作失败，执行降级逻辑
-    logger.warning("Redis 操作失败，使用本地缓存")
-    return localCache.get("key")
+RedisChannelPlugin.api.reconnectAsync().whenComplete { next, error ->
+    if (error != null) {
+        logger.warning("Redis 重连失败: ${error.message}")
+    } else {
+        logger.info("Redis 状态: ${next.state}, generation=${next.generation}")
+    }
 }
 ```
 
-#### 异步操作 - 处理 CompletableFuture 中的 null
-
-```kotlin
-RedisChannelPlugin.api.useAsyncCommands { it.get("key") }
-    .thenAccept { result ->
-        if (result == null) {
-            // 连接池耗尽或操作失败
-            handleFallback()
-        } else {
-            processResult(result)
-        }
-    }
-```
-
-#### 推荐的最佳实践
-
-| 策略 | 说明 |
-|------|------|
-| **重试机制** | 短暂等待后重试，但要设置最大重试次数 |
-| **降级处理** | 使用本地缓存或默认值作为备选 |
-| **熔断器** | 连续失败达到阈值后暂停调用，避免雪崩 |
-| **日志记录** | 记录失败情况，便于排查问题 |
-
-#### 根本解决方案
-
-连接池耗尽通常意味着配置不足或存在连接泄漏。建议：
-
-1. **增大连接池** - 修改 `config.yml` 中的 `pool.maxTotal` 和 `asyncPool.maxTotal`
-2. **检查连接泄漏** - 确保所有操作都在 `useCommands` 等方法的 block 内完成
-3. **优化操作** - 减少长时间占用连接的操作，使用 pipeline 批量处理
-
----
-
-## 📡 事件系统
-
-RedisChannel 提供了事件系统，允许其他插件监听 Redis 连接的生命周期事件。
-
-### 可用事件
-
-| 事件 | 触发时机 | 用途 |
-|------|----------|------|
-| `ClientStartEvent` | Redis 连接建立完成后 | 初始化依赖 Redis 的功能 |
-| `ClientStopEvent` | Redis 连接关闭之前 | 保存数据、清理资源 |
-
-### ClientStartEvent
-
-当 Redis 连接成功建立后触发。
+`ClientStartEvent` 与 `ClientStopEvent` **始终在 Bukkit 主线程触发**：
 
 ```kotlin
 import com.gitee.redischannel.api.events.ClientStartEvent
@@ -495,191 +301,54 @@ import taboolib.common.platform.event.SubscribeEvent
 
 @SubscribeEvent
 fun onRedisStart(event: ClientStartEvent) {
-    // Redis 已连接，可以安全使用 API
-    val api = RedisChannelPlugin.api
-
-    // event.cluster 表示是否为集群模式
-    if (event.cluster) {
-        println("Redis 集群已连接")
-    } else {
-        println("Redis 单机已连接")
+    // 当前位于 Bukkit 主线程，可以安全读取 Bukkit 主线程数据。
+    // Redis I/O 仍必须使用 API v2 异步接口。
+    RedisChannelPlugin.commandAPI().executeAsync(
+        Function { commands -> commands.get("motd") }
+    ).whenComplete { motd, error ->
+        // 此回调不保证位于 Bukkit 主线程。
+        // 如需访问玩家、世界、实体等 Bukkit API，必须切回主线程。
     }
 }
 ```
 
-### ClientStopEvent
+线程规则：
 
-在 Redis 连接关闭**之前**触发，允许其他插件完成最后的 Redis 操作。
+1. Redis I/O 始终使用异步或 Reactive API。
+2. Stage/Publisher 的回调线程不保证是 Bukkit 主线程。
+3. 回调中访问玩家、世界、实体、背包等 Bukkit API 时，使用你的插件调度器切回主线程。
+4. 即使在 `ClientStartEvent`/`ClientStopEvent` 中，也不要调用 `join()` 或 `get()` 阻塞主线程。
 
-```kotlin
-import com.gitee.redischannel.api.events.ClientStopEvent
-import taboolib.common.platform.event.SubscribeEvent
-
-@SubscribeEvent
-fun onRedisStop(event: ClientStopEvent) {
-    // 在 Redis 关闭前保存数据
-    saveAllPlayerData()
-
-    // 注意：事件触发后，Redis 连接将被关闭
-    // 不要在此事件之后再尝试使用 Redis API
-}
-```
-
-### 使用场景
-
-#### 场景 1：确保在 Redis 可用后初始化
-
-```kotlin
-object MyFeature {
-
-    private var initialized = false
-
-    @SubscribeEvent
-    fun onRedisReady(event: ClientStartEvent) {
-        // 从 Redis 加载配置
-        loadConfigFromRedis()
-        initialized = true
-    }
-
-    @SubscribeEvent
-    fun onRedisShutdown(event: ClientStopEvent) {
-        if (initialized) {
-            // 保存配置到 Redis
-            saveConfigToRedis()
-        }
-    }
-}
-```
-
-#### 场景 2：服务器关闭时保存玩家数据
-
-```kotlin
-@SubscribeEvent
-fun onRedisStop(event: ClientStopEvent) {
-    // 遍历所有在线玩家，保存数据
-    Bukkit.getOnlinePlayers().forEach { player ->
-        val data = playerDataCache[player.uniqueId]
-        if (data != null) {
-            RedisChannelPlugin.api.useCommands { cmd ->
-                cmd.hset("player:${player.uniqueId}", data.toMap())
-            }
-        }
-    }
-}
-```
-
-### 注意事项
-
-1. **ClientStopEvent 的时机**：此事件在连接池关闭之前触发，你仍然可以执行 Redis 操作
-2. **不要阻塞太久**：事件处理应该尽快完成，避免延迟服务器关闭
-3. **异常处理**：在事件处理中捕获异常，避免影响其他监听器
-
----
-
-## 🎮 游戏内命令
+## 游戏内命令
 
 | 命令 | 权限 | 描述 |
-|------|------|------|
-| `/redis` | `RedisChannel.Command.Main` | 显示帮助信息 |
-| `/redis reconnect` | `RedisChannel.Command.Main` | 重新连接 Redis |
+|---|---|---|
+| `/redis` | `RedisChannel.Command.Main` | 查看帮助或状态 |
+| `/redis reconnect` | `RedisChannel.Command.Main` | 异步重载配置并重建连接 |
 
----
-
-## 🔧 开发指南
-
-### 构建项目
-
-**构建发行版本**（用于生产环境）:
+## 构建
 
 ```bash
-./gradlew build
+# JDK 17 工具链，生成 Java 8 字节码
+./gradlew build -Pbuild=build/libs
+
+# 构建 API 包
+./gradlew taboolibBuildApi -PDeleteCode -Pbuild=build/libs
 ```
 
-构建产物位于 `build/libs/` 目录。
+构建产物输出目录由 `-Pbuild` 指定。
 
-**构建开发版本**（包含 TabooLib，仅供开发参考）:
+## 技术栈
 
-```bash
-./gradlew taboolibBuildApi -PDeleteCode
-```
+| 组件 | 版本/说明 |
+|---|---|
+| Kotlin | `2.1.20` |
+| TabooLib Gradle 插件 | `2.0.37` |
+| TabooLib | `6.3.0-932e79c` |
+| Lettuce | `6.8.0.RELEASE` |
+| Reactor | `3.6.6`（运行时依赖） |
+| Java Toolchain | JDK 17，目标 Java 8 |
 
-> `-PDeleteCode` 参数会移除逻辑代码以减少体积
+## 许可证
 
-### 项目结构
-
-```
-RedisChannel/
-├── src/main/kotlin/com/gitee/redischannel/
-│   ├── RedisChannelPlugin.kt      # 插件主类
-│   ├── api/                        # 公共 API
-│   │   ├── RedisChannelAPI.kt
-│   │   ├── RedisCommandAPI.kt
-│   │   ├── RedisPubSubAPI.kt
-│   │   ├── events/                 # 事件
-│   │   │   ├── ClientStartEvent.kt
-│   │   │   └── ClientStopEvent.kt
-│   │   └── cluster/
-│   │       ├── RedisClusterCommandAPI.kt
-│   │       └── RedisClusterPubSubAPI.kt
-│   ├── core/                       # 核心实现
-│   │   ├── RedisManager.kt
-│   │   ├── ClusterRedisManager.kt
-│   │   ├── RedisChannelCommand.kt
-│   │   ├── RedisConfig.kt
-│   │   └── RedisMonitor.kt
-│   └── util/
-│       └── File.kt
-├── src/main/resources/
-│   ├── config.yml                  # 主配置文件
-│   └── clusters/                   # 集群节点配置
-│       └── cluster0.yml
-├── build.gradle.kts
-└── gradle.properties
-```
-
-### 技术栈
-
-| 组件 | 版本 | 用途 |
-|------|------|------|
-| Kotlin | 2.1+ | 开发语言 |
-| TabooLib | 6.2.4 | 插件框架 |
-| Lettuce | 7.2.1 | Redis 客户端 |
-| Project Reactor | 3.6.6 | 响应式支持 |
-| Netty | 4.2.5 | 网络通信 |
-| Commons Pool2 | 2.12.1 | 连接池 |
-
----
-
-## 📄 许可证
-
-本项目采用 [CC0 1.0 Universal](LICENSE) 许可证 - 公共领域贡献
-
----
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开 Pull Request
-
----
-
-## 📮 联系方式
-
-- **作者**: zhibei
-- **仓库**: [GitHub](https://github.com/zhibeigg/RedisChannel)
-- **问题反馈**: [Issues](https://github.com/zhibeigg/RedisChannel/issues)
-
----
-
-<div align="center">
-
-**如果这个项目对你有帮助，请给一个 ⭐ Star 支持一下！**
-
-Made with ❤️ for Minecraft Community
-
-</div>
+本项目采用 [CC0 1.0 Universal](LICENSE) 许可证。
