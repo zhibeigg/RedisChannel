@@ -10,6 +10,7 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Supplier
 
@@ -53,10 +54,13 @@ internal object CompletionStages {
 
     fun <T> withTimeout(stage: CompletionStage<T>, timeout: Duration, message: String): CompletableFuture<T> {
         val result = CompletableFuture<T>()
+        val timedOut = AtomicBoolean(false)
         val timeoutTask = scheduler().schedule(
             {
-                if (result.completeExceptionally(TimeoutException(message)) && stage is Future<*>) {
-                    stage.cancel(true)
+                if (!result.isDone) {
+                    timedOut.set(true)
+                    if (stage is Future<*>) stage.cancel(true)
+                    result.completeExceptionally(TimeoutException(message))
                 }
             },
             timeout.toMillis().coerceAtLeast(1),
@@ -67,6 +71,7 @@ internal object CompletionStages {
         }
         stage.whenComplete { value, error ->
             timeoutTask.cancel(false)
+            if (timedOut.get()) return@whenComplete
             if (error == null) {
                 result.complete(value)
             } else {
