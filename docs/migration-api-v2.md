@@ -4,7 +4,7 @@ RedisChannel `2.14.12` 引入 API v2，并删除全部同步 Redis API。最终�
 
 ## 迁移清单
 
-1. 将依赖版本更新到 `2.15.12`，仓库改为当前发布仓库。
+1. 将依赖版本更新到 `2.15.13`，仓库改为当前发布仓库。
 2. 删除所有同步 API 调用。
 3. 将旧命令方法改为 API v2 的四个 `CompletionStage` 方法；旧响应式调用也必须改写为异步 Stage 链。
 4. 不再用 `null` 表示 Redis 错误；异常通过 Stage 的 exceptional completion 传播。
@@ -13,6 +13,7 @@ RedisChannel `2.14.12` 引入 API v2，并删除全部同步 Redis API。最终�
 7. 在异步回调访问 Bukkit API 前切回主线程。
 8. 更新配置为 `language`、`bukkit.blockLoginUntilReady`、`redis.lifecycle` 和统一 `redis.pool`。
 9. 将集群节点文件改为根级 `host`。
+10. 升级到 `2.15.13` 时，将普通 YAML 语言文件目录从 `lang/` 迁移到 `messages/`。
 
 ## 依赖迁移
 
@@ -36,7 +37,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:2.15.12:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.15.13:api")
 }
 ```
 
@@ -312,6 +313,25 @@ fun onRedisStart(event: ClientStartEvent) {
 ```
 
 `ClientStopEvent` 中可以发起异步 API v2 操作；生命周期协调器会在关闭宽限时间内等待已登记的在途操作，但监听器自身不得阻塞。即使停止事件触发失败，runtime 关闭仍会继续；事件失败或关闭失败都会使停止/重连 Future exceptional completion，两者同时失败时会合并异常。
+
+## 2.15.13 语言目录迁移
+
+`2.15.13` 将普通 YAML 语言资源从 `lang/` 调整为 `messages/`，避免继续使用旧资源目录。新插件 JAR 只包含 `messages/*.yml`。
+
+自动兼容规则：
+
+- 启动或重载语言时扫描 `plugins/RedisChannel/lang/*.yml`；
+- 仅在 `plugins/RedisChannel/messages/` 中不存在同名文件时原样复制；
+- 不删除旧文件，不覆盖新目录中的文件，也不改写自定义文本；
+- 如果自动复制失败，当前选择的旧语言文件仍会被直接读取。
+
+建议在部署新 JAR 前停服迁移：
+
+1. `messages/` 不存在时，直接将整个 `lang/` 目录重命名为 `messages/`。
+2. `messages/` 已存在时，只复制其中不存在的文件；同名文件人工比较并合并，禁止覆盖。
+3. 启动 `2.15.13` 并确认自定义文本正确后，再归档或删除旧 `lang/`。
+
+该迁移不涉及公开 API 变更，也不引入任何阻塞等待。
 
 ## 配置迁移
 

@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-RedisChannel `2.15.12` 是基于 TabooLib 的 Bukkit/Spigot Redis 插件，支持单机、Redis Cluster、哨兵和主从模式。
+RedisChannel `2.15.13` 是基于 TabooLib 的 Bukkit/Spigot Redis 插件，支持单机、Redis Cluster、哨兵和主从模式。
 
 兼容性与构建基线：
 
@@ -103,7 +103,7 @@ API v2 只使用 Lettuce `BoundedAsyncPool` 异步连接池，不再维护同步
 
 关键配置：
 
-- 根级 `language`。
+- 根级 `language`；普通 YAML 语言文件位于 `messages/`，旧 `lang/*.yml` 仅做非覆盖兼容迁移。
 - `bukkit.blockLoginUntilReady`。
 - `redis.lifecycle.shutdownGracePeriod`。
 - `redis.lifecycle.healthCheckPeriod`。
@@ -126,7 +126,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:2.15.12:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.15.13:api")
 }
 ```
 
@@ -144,6 +144,7 @@ dependencies {
 | `core/runtime/` | 单机与集群 runtime |
 | `core/RedisConfig.kt` | v2 配置解析 |
 | `src/main/resources/config.yml` | 默认配置模板 |
+| `src/main/resources/messages/` | 普通 YAML 语言资源 |
 | `src/main/resources/clusters/cluster0.yml` | 集群 seed 示例 |
 | `docs/api-v2.md` | API v2 外部文档 |
 | `docs/migration-api-v2.md` | v1 → v2 迁移指南 |

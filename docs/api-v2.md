@@ -4,7 +4,7 @@ RedisChannel API v2 自 `2.14.12` 起提供稳定的非阻塞外部接口。全�
 
 ## 兼容性
 
-- RedisChannel：`2.15.12`
+- RedisChannel：`2.15.13`
 - Minecraft/Bukkit：兼容 `1.12.2`
 - 运行时：Java 8 或更高版本
 - 构建：JDK 17，输出 Java 8 字节码
@@ -19,7 +19,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:2.15.12:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.15.13:api")
 }
 ```
 
@@ -333,6 +333,14 @@ fun onRedisStop(event: ClientStopEvent) {
 - `ClientStartEvent`：runtime 完整建立并进入 `RUNNING` 后触发；首次启动及成功重连均可能触发。`startAsync()`/`reconnectAsync()` 会等到主线程触发尝试结束后才完成；监听器异常会记录日志，但启动仍按成功完成。
 - `ClientStopEvent`：runtime 停止接受新操作前触发；禁用、热重载及重连均可能触发。即使事件触发失败，runtime 关闭仍会继续执行。
 - 停止期间会在 `shutdownGracePeriod` 内等待已登记在途操作。事件失败或关闭失败都会使停止/重连 Stage exceptional completion；若两者都失败，关闭异常会作为 suppressed exception 合并。JVM 关闭时资源释放属于尽力完成。
+
+## 语言资源目录
+
+`2.15.13` 起，RedisChannel 将普通 YAML 语言文件存放在插件数据目录的 `messages/` 下，内置资源也使用 `messages/*.yml`。旧版 `lang/*.yml` 会在启动或重载语言时进行非覆盖兼容迁移：仅复制目标目录中不存在的同名文件，保留旧文件且不修改任何自定义文本；若复制失败，所选旧文件仍可作为兼容读取来源。
+
+服务端部署前可在停服状态下直接将 `plugins/RedisChannel/lang/` 重命名为 `messages/`。如果 `messages/` 已存在，只应复制不存在的文件，并人工合并同名文件，避免覆盖已有自定义内容。
+
+此目录调整只影响插件内部配置资源，不改变任何 API v2 公开类型、方法或异步语义。
 
 ## 配置关联
 

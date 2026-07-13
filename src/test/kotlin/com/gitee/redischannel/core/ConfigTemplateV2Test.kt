@@ -33,8 +33,10 @@ class ConfigTemplateV2Test {
     }
 
     @Test
-    fun `language files exist`() {
-        assertTrue(Files.exists(Paths.get("src/main/resources/lang/zh_CN.yml")))
-        assertTrue(Files.exists(Paths.get("src/main/resources/lang/en_US.yml")))
+    fun `message files replace legacy language resources`() {
+        assertTrue(Files.exists(Paths.get("src/main/resources/messages/zh_CN.yml")))
+        assertTrue(Files.exists(Paths.get("src/main/resources/messages/en_US.yml")))
+        assertFalse(Files.exists(Paths.get("src/main/resources/lang/zh_CN.yml")))
+        assertFalse(Files.exists(Paths.get("src/main/resources/lang/en_US.yml")))
     }
 }

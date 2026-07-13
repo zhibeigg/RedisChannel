@@ -3,10 +3,10 @@
 ## Project Structure & Module Organization
 
 - `src/main/kotlin/com/gitee/redischannel/`: Kotlin source code, including plugin entry, public API v2, lifecycle coordinator, runtimes and utilities.
-- `src/main/resources/`: Runtime templates, including `config.yml`, language files and `clusters/cluster0.yml`.
+- `src/main/resources/`: Runtime templates, including `config.yml`, ordinary YAML language files under `messages/`, and `clusters/cluster0.yml`.
 - `docs/api-v2.md`: Public API v2 reference.
 - `docs/migration-api-v2.md`: v1 to v2 migration guide.
-- `build.gradle.kts`, `gradle.properties`: Build definition and coordinates (`2.15.12`).
+- `build.gradle.kts`, `gradle.properties`: Build definition and coordinates (`2.15.13`).
 - `build/`: Build output; the final artifact path is controlled by `-Pbuild`.
 
 ## Compatibility & Dependencies
@@ -16,7 +16,7 @@
 - Build toolchain: JDK 17, compiling Java and Kotlin to Java 8 bytecode.
 - Lettuce: `6.8.0.RELEASE`.
 - Maven repository: `https://maven.mcwar.cn/releases`.
-- API dependency: `com.gitee.redischannel:RedisChannel:2.15.12:api`.
+- API dependency: `com.gitee.redischannel:RedisChannel:2.15.13:api`.
 
 ## Build, Test, and Development Commands
 
@@ -58,7 +58,7 @@ Contract details:
 
 Current keys include:
 
-- root `language`;
+- root `language`, with ordinary YAML files under `messages/` and non-overwriting compatibility migration from legacy `lang/*.yml`;
 - `bukkit.blockLoginUntilReady`;
 - `redis.lifecycle`;
 - unified async pool `redis.pool`.

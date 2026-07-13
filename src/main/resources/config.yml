@@ -1,4 +1,6 @@
 # zh_CN / en_US
+# 普通 YAML 语言文件位于 plugins/RedisChannel/messages/。
+# 从 2.15.12 及更早版本升级时，旧 lang/*.yml 会仅在目标不存在时原样复制，绝不覆盖 messages 中的文件。
 language: zh_CN
 
 bukkit:

@@ -73,6 +73,29 @@ tasks.test {
     useJUnitPlatform()
 }
 
+val verifyLanguageResources = tasks.register("verifyLanguageResources") {
+    dependsOn(tasks.jar)
+    doLast {
+        val pluginJar = tasks.jar.get().archiveFile.get().asFile
+        check(pluginJar.isFile) { "Plugin artifact not found: ${pluginJar.absolutePath}" }
+        JarFile(pluginJar).use { jar ->
+            val resources = jar.entries().asSequence()
+                .filter { !it.isDirectory && it.name.endsWith(".yml") }
+                .map { it.name }
+                .toSet()
+            check(resources.none { it.startsWith("lang/") }) {
+                "Legacy lang resources leaked into plugin artifact: ${resources.filter { it.startsWith("lang/") }}"
+            }
+            check("messages/zh_CN.yml" in resources) { "messages/zh_CN.yml is missing from plugin artifact" }
+            check("messages/en_US.yml" in resources) { "messages/en_US.yml is missing from plugin artifact" }
+        }
+    }
+}
+
+tasks.check {
+    dependsOn(verifyLanguageResources)
+}
+
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8

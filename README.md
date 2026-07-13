@@ -5,7 +5,7 @@
 <img src="https://img.shields.io/badge/Minecraft-1.12.2+-green?style=flat-square" alt="Minecraft">
 <img src="https://img.shields.io/badge/Java_Runtime-8+-orange?style=flat-square&logo=openjdk" alt="Java Runtime">
 <img src="https://img.shields.io/badge/Lettuce-6.8.0.RELEASE-red?style=flat-square" alt="Lettuce">
-<img src="https://img.shields.io/badge/Version-2.15.12-blue?style=flat-square" alt="Version">
+<img src="https://img.shields.io/badge/Version-2.15.13-blue?style=flat-square" alt="Version">
 
 **面向 Bukkit/Spigot 的非阻塞 Redis 集成插件**
 
@@ -19,7 +19,7 @@
 
 | 项目 | 当前值 |
 |---|---|
-| RedisChannel | `2.15.12` |
+| RedisChannel | `2.15.13` |
 | Minecraft/Bukkit | 兼容 `1.12.2` |
 | 运行时 Java | Java 8 或更高版本 |
 | 构建 JDK | JDK 17 |
@@ -148,6 +148,18 @@ redis:
 - `redis.asyncPool` 不再兼容；检测到该节点会直接配置失败，必须迁移为 `redis.pool`。
 - `redis.lifecycle.healthCheckPeriod` 最小为 1 秒，健康检查调度粒度为 1 秒。
 
+### 语言文件目录迁移
+
+从 `2.15.13` 起，普通 YAML 语言文件位于 `plugins/RedisChannel/messages/`，插件 JAR 中也只包含 `messages/*.yml`，不再包含 `lang/*.yml`。
+
+升级时插件会扫描旧的 `plugins/RedisChannel/lang/*.yml`，仅当 `messages/` 中不存在同名文件时原样复制。旧文件不会被删除，已有 `messages` 文件也绝不会被覆盖；如果复制因文件系统权限失败，当前选择的旧语言文件仍可直接读取。
+
+推荐在部署新 JAR 前停止服务端并直接迁移：
+
+1. 如果尚无 `messages/`，可将整个 `lang/` 目录重命名为 `messages/`。
+2. 如果已有 `messages/`，只复制其中不存在的文件；同名文件需人工比较并合并自定义文本，不能直接覆盖。
+3. 确认新版本加载文本正确后，再自行归档或删除旧 `lang/` 目录。
+
 ### 集群 seed 节点
 
 启用 `redis.cluster.enable` 后，在 `plugins/RedisChannel/clusters/` 中放置节点文件。Cluster 与 Sentinel 互斥，不能同时启用。`cluster0.yml` 的 `host` 等字段位于文件根级，不要再包一层 `redis`：
@@ -178,7 +190,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.gitee.redischannel:RedisChannel:2.15.12:api")
+    compileOnly("com.gitee.redischannel:RedisChannel:2.15.13:api")
 }
 ```
 
@@ -345,8 +357,8 @@ fun onRedisStart(event: ClientStartEvent) {
 示例：
 
 ```bash
-git tag v2.15.12
-git push origin v2.15.12
+git tag v2.15.13
+git push origin v2.15.13
 ```
 
 标签版本与项目版本不一致时，发布任务会直接失败。重新运行同一标签的工作流会覆盖 Release 附件，不会重复创建 Release。
