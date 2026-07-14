@@ -210,7 +210,8 @@ internal object RedisLifecycleCoordinator {
                 CompletionStages.withTimeout(
                     dispatch,
                     config.lifecycle.statusTimeout.toJavaDuration(),
-                    "等待 ClientStartEvent 主线程派发超时"
+                    "等待 ClientStartEvent 主线程派发超时",
+                    cancelSourceOnTimeout = false
                 )
             } catch (eventError: Throwable) {
                 CompletionStages.failed<Void>(eventError)
@@ -247,7 +248,8 @@ internal object RedisLifecycleCoordinator {
         return CompletionStages.withTimeout(
             dispatch,
             runtime.config.lifecycle.statusTimeout.toJavaDuration(),
-            "等待 ClientStopEvent 主线程派发超时"
+            "等待 ClientStopEvent 主线程派发超时",
+            cancelSourceOnTimeout = false
         )
     }
 

@@ -52,14 +52,19 @@ internal object CompletionStages {
         return current
     }
 
-    fun <T> withTimeout(stage: CompletionStage<T>, timeout: Duration, message: String): CompletableFuture<T> {
+    fun <T> withTimeout(
+        stage: CompletionStage<T>,
+        timeout: Duration,
+        message: String,
+        cancelSourceOnTimeout: Boolean = true
+    ): CompletableFuture<T> {
         val result = CompletableFuture<T>()
         val timedOut = AtomicBoolean(false)
         val timeoutTask = scheduler().schedule(
             {
                 if (!result.isDone) {
                     timedOut.set(true)
-                    if (stage is Future<*>) stage.cancel(true)
+                    if (cancelSourceOnTimeout && stage is Future<*>) stage.cancel(true)
                     result.completeExceptionally(TimeoutException(message))
                 }
             },

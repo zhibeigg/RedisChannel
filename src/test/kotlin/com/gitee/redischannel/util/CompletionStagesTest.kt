@@ -1,6 +1,7 @@
 package com.gitee.redischannel.util
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -24,6 +25,26 @@ class CompletionStagesTest {
 
         assertTrue(failure.cause is TimeoutException)
         assertTrue(source.isCancelled)
+    }
+
+    @Test
+    fun `timeout can preserve the underlying future for deferred main thread work`() {
+        val source = CompletableFuture<String>()
+        val timed = CompletionStages.withTimeout(
+            source,
+            Duration.ofMillis(10),
+            "timeout",
+            cancelSourceOnTimeout = false
+        )
+
+        val failure = assertThrows(ExecutionException::class.java) {
+            timed.get(1, TimeUnit.SECONDS)
+        }
+
+        assertTrue(failure.cause is TimeoutException)
+        assertFalse(source.isCancelled)
+        source.complete("late")
+        assertEquals("late", source.get(1, TimeUnit.SECONDS))
     }
 
     @Test
